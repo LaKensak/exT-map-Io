@@ -1,0 +1,119 @@
+[!] GameAssembly.dll not found at default path.
+Enter full path to GameAssembly.dll: [*] Discovered Item Type from PlayerInventory: %1a6c21f33e4d71e5182ea316bc7c0fe79017ba9d
+[+] offsets::ItemContainer::list -> 0x38
+[+] offsets::ItemDefinition::shortName: 0x28
+[+] offsets::ItemDefinition::itemDisplayName: 0x40
+[+] offsets::ItemDefinition::itemModWearable: 0x1a0
+[+] offsets::SkinnedMultiMesh::rendererList: 0x58
+[+] Possible Item::amount (public int #1) -> 0x90
+[+] Possible Item::amount (public int #2) -> 0x98
+[+] offsets::Item::itemDefinition: 0xa0
+[+] offsets::PlayerInventory::container1 -> 0x28
+[+] offsets::PlayerInventory::container2 -> 0x60
+[+] offsets::PlayerInventory::container3 -> 0x78
+[+] offsets::Magazine::definition: 0x10
+[+] offsets::Magazine::Capacity: 0x18
+[+] offsets::Magazine::Contents: 0x1c
+[+] offsets::Magazine::ammoType: 0x20
+[+] offsets::BaseProjectile::damageScale: 0x384
+[+] offsets::BaseProjectile::automatic: 0x398
+[+] offsets::BaseProjectile::MuzzlePoint: 0x3d0
+[+] offsets::BaseProjectile::reloadTime: 0x3d8
+[+] offsets::BaseProjectile::primaryMagazine: 0x3e0
+[+] offsets::BaseProjectile::aimSway: 0x400
+[+] offsets::BaseProjectile::aimSwaySpeed: 0x404
+[+] offsets::BaseProjectile::recoilProp: 0x408
+[+] offsets::BaseProjectile::aimCone: 0x418
+[+] offsets::BaseProjectile::hipAimCone: 0x41c
+[+] offsets::BaseProjectile::numShotsFired: 0x454
+[+] offsets::PlayerEyes::viewOffset -> 0x40
+[+] offsets::PlayerEyes::bodyRotation -> 0x50
+[+] offsets::PlayerEyes::unkQuanternion -> 0x6c
+[+] offsets::RecoilProperties::recoilYawMin: 0x18
+[+] offsets::RecoilProperties::recoilYawMax: 0x1c
+[+] offsets::RecoilProperties::recoilPitchMin: 0x20
+[+] offsets::RecoilProperties::recoilPitchMax: 0x24
+[+] offsets::RecoilProperties::clampPitch: 0x38
+[+] offsets::RecoilProperties::pitchCurve: 0x40
+[+] offsets::RecoilProperties::yawCurve: 0x48
+[+] offsets::RecoilProperties::useCurves: 0x50
+[+] offsets::RecoilProperties::newRecoilOverride: 0x80
+[+] offsets::BaseViewModel::viewmodelType: 0x50
+[+] offsets::BaseViewModel::MuzzlePoint: 0x58
+[+] offsets::BaseViewModel::animationEvents: 0xb0
+[+] offsets::BaseEntity::model: 0x1b8
+[+] offsets::BaseCombatEntity::lifeState: 0x2a8
+[+] offsets::BaseCombatEntity::health -> 0x2b4
+[+] offsets::BaseCombatEntity::maxHealth -> 0x2b8
+[+] Possible 3st protected float in BCE -> 0x2c4
+[+] offsets::BasePlayer::playerEyes -> 0x348
+[+] offsets::BasePlayer::playerInput: 0x3e8
+[+] offsets::BasePlayer::username: 0x438
+[+] offsets::BasePlayer::playerInventory -> 0x510
+[+] offsets::BasePlayer::team: 0x558
+[+] offsets::BasePlayer::clActiveItem -> 0x588
+[+] offsets::BasePlayer::playerFlags: 0x6d8
+[+] offsets::BasePlayer::playerModel: 0x7a0
+[+] offsets::Model::rootBone: 0x28
+[+] offsets::Model::headBone: 0x30
+[+] offsets::Model::boneTransforms: 0x50
+[+] offsets::PlayerModel::velocity -> 0x28
+[+] Possible PlayerModel::position (internal Vector3 #1) -> 0x2f8
+[+] Possible PlayerModel::position (internal Vector3 #2) -> 0x310
+[+] Possible PlayerModel::position (internal Vector3 #3) -> 0x35c
+[+] Possible PlayerModel::position (internal Vector3 #4) -> 0x368
+[+] offsets::PlayerModel::SkinnedMultiMesh: 0x3a8
+[+] offsets::TOD_Sky::Cycle: 0x40
+[+] offsets::TOD_Sky::World: 0x48
+[+] offsets::TOD_Sky::Atmosphere: 0x50
+[+] offsets::TOD_Sky::Day: 0x58
+[+] offsets::TOD_Sky::Night: 0x60
+[+] offsets::TOD_Sky::Sun: 0x68
+[+] offsets::TOD_Sky::Moon: 0x70
+[+] offsets::TOD_Sky::Stars: 0x78
+[+] offsets::TOD_Sky::Clouds: 0x80
+[+] offsets::TOD_Sky::Light: 0x88
+[+] offsets::TOD_Sky::Fog: 0x90
+[+] offsets::TOD_Sky::Ambient: 0x98
+[+] offsets::TOD_Sky::Reflection: 0xa0
+[+] offsets::Item::itemUid -> 0x10
+[+] offsets::Item::itemUid2 -> 0x28
+[+] offsets::Item::itemUid3 -> 0x54
+[+] offsets::Item::itemUid4 -> 0xd8
+[+] offsets::Item::heldEntity -> 0x80
+[+] offsets::Item::heldEntity2 -> 0xb8
+[+] Found BaseNetworkable hash: %f05184178e2d2e7d125ddcf0c59eeef1c0133c90
+[+] BaseViewModel cctor: 0x55a35d0
+[+] CameraUpdateHook_C: 0x1193f8f8
+[+] BaseViewModel_C (2nd match): 0x11944670
+[+] ListComponent_PlayerModel_C: 0x1196d5a8
+[+] MainCamera_C (typeinfo): 0x119b0a40
+[+] MainCamera_C (typeinfo): 0x119b0a40
+[+] BaseNetworkable_C (typeinfo): 0x119b5410
+[+] TOD_Sky_C (2nd match): 0x119cc870
+[+] Client Ents RVA: 0x0
+[+] Ent List RVA: 0x6badb90
+[-] necessary RVAs in dump.cs
+[*] MainCamera_C VA: 0x7ffd68940a40
+[+] MainCamera_C: 0x7ffd570ce78f
+[+] MainCamera Chain1 (static_fields): 0xb8
+[+] MainCamera Chain2 (instance): 0x8
+[+] MainCamera Chain3: 0x10
+[+] Camera chain: [+0xb8] -> [+0x8] -> [+0x10]
+[*] TOD_Sky_C VA: 0x7ffd6895c870
+[+] TOD_Sky instance offset: 0x4
+[*] ListComponent_PlayerModel_C VA: 0x7ffd688fd5a8
+[+] ListComponent_PlayerModel instance (wrapper) offset: 0x8
+[+] ListComponent_PlayerModel parent (list) offset: 0x10
+[+] PlayerInventory getter RVA: 0x61c63e0
+[+] PlayerInventory field offset: 0x510
+[+] PlayerInventory decrypt func: 0x1b43160
+[+] PlayerEyes getter RVA: 0x61a7610
+[+] PlayerEyes field offset: 0x348
+[+] PlayerEyes decrypt func: 0xf98b40
+[+] Passing cctor: 0x7ffd5c5335d0
+[+] offsets::BaseViewModel::list -> 0x90
+[*] Found 6x
+[+] cl_active_item decrypt RVA: 0x61ef9c0
+[+] cl_active_item: 0x7ffd5d17f9c0
+[+] Successfully exported offsets to offsets_decrypts_export.h

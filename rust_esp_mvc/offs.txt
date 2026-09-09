@@ -1,0 +1,1207 @@
+inline std::uintptr_t decrypt_client_entities( std::uintptr_t a1 ) {
+    std::uint32_t eax = 0u, edx = 2u;
+    
+    std::uint64_t  rax = mem::read< std::uint64_t >( a1 + 0x18 );
+    std::uint32_t* rcx = ( std::uint32_t* ) &rax;
+    
+    do {
+        eax = *( std::uint32_t* ) rcx;
+        rcx = ( std::uint32_t* )( ( char* ) rcx + 0x04 );
+        eax ^= 0xdd40083b;
+        eax -= 0x56499a58;
+        eax ^= 0x74fa9c91;
+        *( ( std::uint32_t* ) rcx - 0x01 ) = eax;
+    } while ( --edx );
+    
+    return il2cpp::gchandle_get_target( rax );
+}
+ 
+inline std::uintptr_t decrypt_entity_list( std::uintptr_t a1 ) {
+    std::uint32_t eax = 0u, ecx = 0u, r8d = 2u;
+    
+    std::uint64_t  rax = mem::read< std::uint64_t >( a1 + 0x18 );
+    std::uint32_t* rdx = ( std::uint32_t* ) &rax;
+    
+    do {
+        eax = *( std::uint32_t* ) rdx;
+        rdx = ( std::uint32_t* )( ( char* ) rdx + 0x04 );
+        eax += 0x3f41ef1e;
+        ecx = eax;
+        eax <<= 0x0f;
+        ecx >>= 0x11;
+        ecx |= eax;
+        ecx += 0xc46447c5;
+        eax = ecx;
+        ecx <<= 0x0f;
+        eax >>= 0x11;
+        eax |= ecx;
+        *( ( std::uint32_t* ) rdx - 0x01 ) = eax;
+    } while ( --r8d );
+    
+    return il2cpp::gchandle_get_target( rax );
+}
+Code:
+inline float decrypt_fov( std::uintptr_t a1 ) {
+    std::uint32_t eax = static_cast< std::uint32_t >( a1 );
+    eax = ( eax ^ 0x5033636E ); // xor eax, 0x5033636E
+    eax = ( eax + 0x69879941 ); // add eax, 0x69879941
+    eax = ( eax >> 0x10 ) | ( eax << 0x10 ); // shr ecx, 0x10, shl eax, 0x10, or ecx, eax
+    return *( float* ) &eax;
+}
+ 
+inline std::uint32_t encrypt_fov( float a1 ) {
+    std::uint32_t eax = std::bit_cast< std::uint32_t >( a1 );
+    eax = ( eax << 0x10 ) | ( eax >> 0x10 ); // shl ecx, 0x10, shr eax, 0x10, or ecx, eax
+    eax = ( eax - 0x69879941 ); // sub eax, 0x69879941
+    eax = ( eax ^ 0x5033636E ); // xor eax, 0x5033636E
+    return eax;
+}
+ 
+inline float decrypt_client_tick_interval( std::uintptr_t a1 ) {
+    std::uint32_t eax = static_cast< std::uint32_t >( a1 );
+    eax = ( eax ^ 0x5033636E ); // xor eax, 0x5033636E
+    eax = ( eax + 0x69879941 ); // add eax, 0x69879941
+    eax = ( eax >> 0x10 ) | ( eax << 0x10 ); // shr ecx, 0x10, shl eax, 0x10, or ecx, eax
+    return *( float* ) &eax;
+}
+ 
+inline std::uint32_t encrypt_client_tick_interval( float a1 ) {
+    std::uint32_t eax = std::bit_cast< std::uint32_t >( a1 );
+    eax = ( eax << 0x10 ) | ( eax >> 0x10 ); // shl ecx, 0x10, shr eax, 0x10, or ecx, eax
+    eax = ( eax - 0x69879941 ); // sub eax, 0x69879941
+    eax = ( eax ^ 0x5033636E ); // xor eax, 0x5033636E
+    return eax;
+}
+Code:
+	namespace base_networkable {
+		declare( net, 0x70 );
+		declare( parent_entity, 0x38 );
+		declare( children, 0x68 );
+		declare( short_prefab_name, 0x80 );
+		declare( is_destroyed, 0x78 );
+ 
+		declare( get_short_prefab_name, 0x52fca70 );
+	} // namespace base_networkable
+ 
+#define base_networkable_static_hash "BaseNetworkable/%6fc41d2d3b6f8e1a6507bd1e62280a7dfea236b9"
+	namespace base_networkable_static {
+		declare( type_info, 0x11811bf0 );
+ 
+		declare( client_entities, 0x8 );
+	} // namespace base_networkable_static
+ 
+#define base_networkable_entity_realm_hash "BaseNetworkable/%9b5072adb8c1069028d20e11ca49af86614076f0"
+	namespace base_networkable_entity_realm {
+		declare( entity_list, 0x10 );
+	} // namespace base_networkable_entity_realm
+ 
+#define system_collections_queue_hash "System/Collections.Generic.Queue<%cdb7b3ce1cb78ed880f2853b28d06cfd9dddce49.%eb663d35fb27382239cc12de168990c1d20a5173>"
+	namespace system_collections_queue {
+		declare( array, 0x10 );
+		declare( size, 0x20 );
+	} // namespace system_collections_queue
+ 
+	namespace system_collections_list {
+		declare( items, 0x10 );
+		declare( size, 0x18 );
+	} // namespace system_collections_list
+ 
+#define system_list_dictionary_hash "%b398085096121231afa45a1dc1977d9bab194bae<%e5ab0de35677a2ce066b1454be8bf3afdef44dac,BaseNetworkable>"
+	namespace system_list_dictionary {
+		declare( vals, 0x18 );
+	} // namespace system_list_dictionary
+ 
+#define system_buffer_list_hash "%46619f52a81e504e1c494c2d98019d8dd5180966<BaseNetworkable>"
+	namespace system_buffer_list {
+		declare( count, 0x18 );
+		declare( buffer, 0x10 );
+	} // namespace system_buffer_list
+ 
+	namespace singleton_component {
+		declare( instance, 0x8 );
+	} // namespace singleton_component
+ 
+	namespace base_entity {
+		declare( type_info, 0x1181d2b0 );
+ 
+		declare( triggers, 0xe8 );
+		declare( position_lerp, 0x110 );
+ 
+		declare( server_rpc_string_color, 0x2ac5a10 );
+		declare( server_rpc_string_string_string_string_string, 0x2ac83a0 );
+		declare( server_rpc_int32_int64, 0x2ac8bc0 );
+		declare( server_rpc_int32_int32_int32_single, 0x2acadd0 );
+		declare( server_rpc_int32_int32_int32_int32_byte_uint64_uint64, 0x2acd1f0 );
+		declare( server_rpc_int32_uint64_int32, 0x2ad1070 );
+		declare( server_rpc_uint32_byte_uint32_uint32_boolean, 0x2ad46b0 );
+		declare( server_rpc_vector3_single, 0x2ad7ec0 );
+		declare( server_rpc_uint32_string, 0x2ae3210 );
+		declare( server_rpc_vector3_vector3_boolean, 0x2ae5890 );
+		declare( server_rpc_uint32_byte_uint32_uint32, 0x2ae9c80 );
+		declare( server_rpc_int32_color_color_color_color, 0x2af0700 );
+		declare( server_rpc_int32_int32_boolean, 0x2b00150 );
+		declare( server_rpc_vector3, 0x2b030d0 );
+		declare( server_rpc_uint64_int32, 0x2b08370 );
+		declare( server_rpc_int32_uint64, 0x2b0bbc0 );
+		declare( server_rpc_vector3_vector3_single, 0x2b0dda0 );
+		declare( server_rpc_string_string_int32_string, 0x2b0ff10 );
+		declare( server_rpc, 0x2b128c0 );
+		declare( server_rpc_string_string, 0x2b12c10 );
+		declare( server_rpc_uint32_int32, 0x2b13950 );
+		declare( server_rpc_uint64_string, 0x2b15760 );
+		declare( server_rpc_int32_int32_int32, 0x2b1cb10 );
+		declare( server_rpc_int32_int32_uint32_uint32, 0x2b20af0 );
+		declare( server_rpc_vector3_vector3_int32_int32, 0x2b249a0 );
+		declare( server_rpc_vector3_vector3, 0x2b263a0 );
+		declare( server_rpc_single, 0x2b27d00 );
+		declare( server_rpc_int32_int32_int32_int32_byte, 0x2b2f980 );
+		declare( server_rpc_int32_int32_ray, 0x2b30240 );
+		declare( server_rpc_int64, 0x2b3c630 );
+		declare( server_rpc_string, 0x2b3dcd0 );
+		declare( server_rpc_boolean, 0x2b3de80 );
+		declare( server_rpc_string_boolean, 0x2b40520 );
+		declare( server_rpc_vector3_int32_boolean, 0x2b4a360 );
+		declare( server_rpc_uint32, 0x2b4f680 );
+		declare( server_rpc_ray_int32, 0x2b52310 );
+		declare( server_rpc_int32_color32, 0x2b52760 );
+		declare( server_rpc_int32_boolean, 0x2b579b0 );
+		declare( server_rpc_int32, 0x2b5f590 );
+		declare( server_rpc_boolean_boolean_int32, 0x2b651d0 );
+		declare( server_rpc_string_vector3_int32, 0x2b68210 );
+		declare( server_rpc_vector3_vector3_vector3_int32, 0x2b70290 );
+		declare( server_rpc_int16, 0x2b738d0 );
+		declare( server_rpc_uint64, 0x2b81d20 );
+		declare( server_rpc_int32_int32, 0x2b8c090 );
+		declare( server_rpc_string_color_color, 0x2b8f610 );
+		declare( server_rpc_int32_int32_int32_int32, 0x2b99ee0 );
+		declare( server_rpc_int32_string, 0x2b9f8f0 );
+		declare( server_rpc_int32_uint64_string, 0x2ba0f30 );
+		declare( server_rpc_string_string_string_string, 0x2ba7340 );
+ 
+		declare( find_bone, 0x2ac45f0 );
+		declare( get_inherited_projectile_velocity, 0x2ac9470 );
+		declare( get_angular_velocity, 0x2b90a60 );
+		declare( get_parent_velocity, 0x2ba8530 );
+		declare( get_world_velocity, 0x2ba8b20 );
+		declare( send_signal_broadcast, 0x2b73f10 );
+		declare( server_rpc_start, 0x2afdac0 );
+	} // namespace base_entity
+ 
+#define position_lerp_hash "%5f179d966ba587379a2bc7294db043c04714e8ff"
+	namespace position_lerp {
+		declare( interpolator, 0x50 );
+	} // namespace position_lerp
+ 
+#define interpolator_hash "%a1a0470ae712add14d39775d709f8613fa93c6ad<%882ae5c07c93624316c5023b76dcbd7f6130310f>"
+	namespace interpolator {
+		declare( list, 0x30 );
+		declare( last, 0x10 );
+	} // namespace interpolator
+ 
+	namespace animal_animation {
+		declare( footstep, 0x4f89050 );
+	} // namespace animal_animation
+ 
+	namespace material_effect {
+		declare( spawn_on_ray, 0x2388050 );
+	} // namespace material_effect
+ 
+	namespace base_combat_entity {
+		declare( type_info, 0x11902918 );
+ 
+		declare( health, 0x2b4 );
+		declare( max_health, 0x2b8 );
+	} // namespace base_combat_entity
+ 
+#define damage_type_list_hash "%94cc35820905fb64ea0928bac3565dfe31e02eaa"
+	namespace damage_type_list {
+		declare( types, 0x10 );
+	} // namespace damage_type_list
+ 
+	namespace attack_entity {
+		declare( type_info, 0x1182a3b8 );
+ 
+		declare( next_attack_time, 0x340 );
+		declare( time_since_deploy, 0x358 );
+ 
+		declare( start_attack_cooldown, 0x372ce40 );
+		declare( is_fully_deployed, 0x372c3c0 );
+		declare( has_attack_cooldown, 0x372b8d0 );
+	} // namespace attack_entity
+ 
+	namespace base_projectile {
+		declare( type_info, 0x1182a3c8 );
+ 
+		declare( is_reloading, 0x484 );
+ 
+		declare( launch_projectile_client_side, 0x3174b20 );
+		declare( launch_projectile, 0x314ca90 );
+		declare( update_ammo_display, 0x3154ae0 );
+	} // namespace base_projectile
+ 
+#define hit_test_hash "%4489165b12a947c8bb9572cfd3c642a4319df795"
+	namespace hit_test {
+		declare( type_info, 0x11835ec8 );
+ 
+		declare( type, 0xdc );
+		declare( attack_ray, 0xa0 );
+		declare( ray_hit, 0x4c );
+		declare( damage_properties, 0xc0 );
+		declare( game_object, 0x98 );
+		declare( collider, 0x18 );
+		declare( ignored_types, 0x80 );
+		declare( hit_transform, 0xb8 );
+		declare( hit_part, 0xc8 );
+		declare( hit_material, 0x28 );
+		declare( did_hit, 0x30 );
+		declare( max_distance, 0x20 );
+		declare( hit_normal, 0x38 );
+		declare( hit_point, 0x88 );
+		declare( ignore_entity, 0x78 );
+		declare( hit_entity, 0xd0 );
+	} // namespace hit_test
+ 
+	namespace projectile {
+		declare( owner, 0x110 );
+		declare( source_projectile_prefab, 0x1e0 );
+		declare( mod, 0x108 );
+		declare( hit_test, 0x118 );
+		declare( projectile_id, 0x130 );
+		declare( launch_time, 0x184 );
+		declare( current_velocity, 0x164 );
+		declare( current_position, 0x170 );
+		declare( max_distance, 0x140 );
+		declare( traveled_distance, 0x17c );
+		declare( traveled_time, 0x180 );
+		declare( previous_traveled_time, 0x1ac );
+		declare( integrity, 0x13c );
+ 
+		declare( calculate_effect_scale, 0x66e72d0 );
+		declare( initialize_velocity, 0x66b42e0 );
+		declare( set_effect_scale, 0x66e8d40 );
+		declare( update_velocity, 0x66d1c90 );
+		declare( do_velocity_update, 0x669dd50 );
+		declare( do_movement, 0x66b0010 );
+		declare( launch, 0x66ba540 );
+		declare( retire, 0x66dc180 );
+		declare( do_hit, 0x66ac9b0 );
+	} // namespace projectile
+ 
+	namespace d_draw {
+		declare( type_info, 0x119253f8 );
+ 
+		declare( draw_sphere, -1 );
+		declare( draw_text, -1 );
+		declare( draw_line, -1 );
+	} // namespace d_draw
+ 
+#define hit_info_hash "%1178f44e2fd420e964f59d7143cc184dc767ac6f"
+	namespace hit_info {
+		declare( damage_properties, 0x88 );
+		declare( damage_types, 0x50 );
+ 
+		declare( get_bone_area, 0x5d64480 );
+	} // namespace hit_info
+ 
+#define game_trace_hash "%32dd10755eb81ba221854361d6d080eec82e23c4"
+	namespace game_trace {
+		declare( trace, 0x7a824e0 );
+	} // namespace game_trace
+ 
+	namespace base_melee {
+		declare( type_info, 0x118ba480 );
+ 
+		declare( process_attack, 0x3a254d0 );
+		declare( do_throw, 0x3a227e0 );
+	} // namespace base_melee
+ 
+	namespace flint_strike_weapon {
+		declare( strikes, 0x4d4 );
+	} // namespace flint_strike_weapon
+ 
+	namespace compound_bow_weapon {
+		declare( string_hold_time_start, 0x53c );
+		declare( movement_penalty, 0x530 );
+	} // namespace compound_bow_weapon
+ 
+	namespace player_loot {
+		declare( containers, 0x38 );
+	} // namespace player_loot
+ 
+	namespace player_inventory {
+		declare( container_belt, 0x38 );
+		declare( container_main, 0x58 );
+		declare( container_wear, 0x28 );
+		declare( loot, 0x48 );
+	} // namespace player_inventory
+ 
+#define item_container_hash "%765a9d3567b6e7d14c89e6160cb469edc107a4b2"
+	namespace item_container {
+		declare( uid, 0x18 );
+		declare( item_list, 0x78 );
+		declare( capacity, 0x70 );
+	} // namespace item_container
+ 
+#define local_player_hash "%dd26ec298f3560cf490636c6cd8f1871a8b7d4ce"
+	namespace local_player {
+		declare( item_command, 0x35a2360 );
+		declare( move_item, 0x35b8950 );
+		declare( get_entity, 0x35a0740 );
+		declare( modify_camera, 0x35be2c0 );
+	} // namespace local_player
+ 
+#define local_player_static_hash "%dd26ec298f3560cf490636c6cd8f1871a8b7d4ce/%1edb061fab1c50299f17d818e2806b6ae1633970"
+	namespace local_player_static {
+		declare( type_info, 0x118e8020 );
+ 
+		declare( last_death_time, 0xa0 );
+	} // namespace local_player_static
+ 
+	namespace item_icon {
+		declare( try_to_move, 0x77ea450 );
+		declare( run_timed_action, 0x77cf680 );
+	} // namespace item_icon
+ 
+	namespace player_eyes {
+		declare( view_offset, 0x40 );
+		declare( body_rotation, 0x50 );
+ 
+		declare( get_position, 0x13b5540 );
+		declare( get_rotation, 0x1394e40 );
+		declare( head_forward, 0x1398960 );
+		declare( frame_update, 0x1391000 );
+	} // namespace player_eyes
+ 
+#define player_eyes_static_hash "PlayerEyes/%82427a1bbd3511e5634cd064693fda2cffd9a56f"
+	namespace player_eyes_static {
+		declare( type_info, 0x118189a0 );
+ 
+		declare( eye_offset, 0xa4 );
+		declare( duck_offset, 0x10 );
+	} // namespace player_eyes_static
+ 
+	namespace entity_component {
+		declare( base_entity, 0x20 );
+	} // namespace entity_component
+ 
+	namespace base_player {
+		declare( type_info, 0x11811c10 );
+ 
+		declare( player_model, 0x520 );
+		declare( input, 0x618 );
+		declare( movement, 0x4b8 );
+		declare( model_state, 0x510 );
+		declare( user_id_string, 0x538 );
+		declare( display_name, 0x708 );
+		declare( looking_at, 0x6e8 );
+		declare( client_team, 0x308 );
+		declare( last_sent_tick_time, 0x698 );
+		declare( last_sent_tick, 0x498 );
+		declare( mounted, 0x5e0 );
+		declare( belt, 0x3a8 );
+		declare( current_gesture, 0x438 );
+		declare( looking_at_entity, 0x300 );
+ 
+		declare( is_on_ground, 0x43980d0 );
+		declare( get_speed, 0x4419030 );
+		declare( send_client_tick, 0x45592b0 );
+		declare( client_input, 0x43cf8f0 );
+		declare( client_update_sleeping, 0x45306c0 );
+		declare( client_update, 0x447cee0 );
+		declare( held_entity_input, 0x45a6950 );
+		declare( get_held_entity, 0x4498ac0 );
+		declare( client_cycle, 0x45b71c0 );
+		declare( modify_camera, 0x44bbc50 );
+		declare( on_attacked, 0x43e5b10 );
+		declare( on_view_mode_changed, 0x43bd9c0 );
+	} // namespace base_player
+ 
+#define player_belt_hash "%c505dbc3ae2e10e49e3a2a83d649019c26347d0b"
+	namespace player_belt {
+		declare( type_info, 0x118ba4d8 );
+ 
+		declare( change_select, 0x34b9000 );
+		declare( get_active_item, 0x34bbc20 );
+	} // namespace player_belt
+ 
+	namespace base_movement {
+		declare( owner, 0x30 );
+		declare( admin_cheat, 0x0 );
+		declare( admin_speed, 0x0 );
+	} // namespace base_movement
+ 
+	namespace player_walk_movement {
+		declare( capsule, 0xf8 );
+		declare( ladder, 0xe0 );
+		declare( modify, 0x1c0 );
+ 
+		declare( do_fixed_update, -1 );
+		declare( ground_check, 0x1875410 );
+		declare( client_input, 0x187f0d0 );
+		declare( frame_update, 0x1890830 );
+	} // namespace player_walk_movement
+ 
+	namespace building_privlidge {
+		declare( cached_protected_minutes, 0x418 );
+	} // namespace building_privlidge
+ 
+	namespace world_item {
+		declare( type_info, 0x11911470 );
+ 
+		declare( item, 0x208 );
+	} // namespace world_item
+ 
+	namespace hackable_locked_crate {
+		declare( hack_seconds, 0x410 );
+	} // namespace hackable_locked_crate
+ 
+	namespace lootable_corpse {
+		declare( player_steam_id, 0x318 );
+		declare( player_name, 0x328 );
+	} // namespace lootable_corpse
+ 
+	namespace dropped_item_container {
+		declare( type_info, 0x1190f7a8 );
+ 
+		declare( player_steam_id, 0x2e8 );
+		declare( player_name, 0x2d0 );
+	} // namespace dropped_item_container
+ 
+	namespace main_camera {
+		declare( type_info, 0x1180ba28 );
+ 
+		declare( main_camera, 0x30 );
+		declare( main_camera_transform, 0x0 );
+ 
+		declare( update, 0x67c4370 );
+	} // namespace main_camera
+ 
+#define player_tick_hash "%fda8bd197e20d83f601e662f0fec6f6a80ee9d81"
+	namespace player_tick {
+		declare( input_state, 0x38 );
+		declare( model_state, 0x30 );
+		declare( active_item, 0x48 );
+		declare( parent_id, 0x58 );
+		declare( position, 0x1c );
+		declare( eye_pos, 0x10 );
+	} // namespace player_tick
+ 
+#define input_message_hash "%7cd6dca831c3d8d95fecc782068fccb93b941b8e"
+	namespace input_message {
+		declare( type_info, 0x118ab860 );
+ 
+		declare( buttons, 0x2c );
+		declare( mouse_delta, 0x10 );
+		declare( aim_angles, 0x1c );
+	} // namespace input_message
+ 
+#define input_state_hash "%25d9cfc99eeeb9370decfade90dcf78f289bb2fa"
+	namespace input_state {
+		declare( type_info, 0x11920fb8 );
+ 
+		declare( swallowed_buttons, 0x10 );
+		declare( current, 0x20 );
+		declare( previous, 0x18 );
+	} // namespace input_state
+ 
+	namespace player_input {
+		declare( type_info, 0x118910e8 );
+ 
+		declare( state, 0x28 );
+		declare( body_angles, 0x44 );
+	} // namespace player_input
+ 
+#define model_state_hash "%1861db67e0c6312e775f25ea56ee5e39e90667fc"
+	namespace model_state {
+		declare( type_info, 0x118ac9c0 );
+ 
+		declare( flags, 0x3c );
+		declare( water_level, 0x34 );
+		declare( look_dir, 0x58 );
+	} // namespace model_state
+ 
+#define item_hash "%29124011a516a908a3d76b9142b8553759b12266"
+	namespace item {
+		declare( type_info, 0x11802898 );
+ 
+		declare( info, 0x40 );
+		declare( uid, 0x18 );
+		declare( client_ammo_count, 0x38 );
+		declare( max_condition, 0x50 );
+		declare( condition, 0x98 );
+		declare( amount, 0xb0 );
+		declare( position, 0xb4 );
+		declare( contents, 0xa8 );
+		declare( parent, 0xb8 );
+		declare( world_ent, 0x20 );
+		declare( held_entity, 0x58 );
+		declare( get_icon_sprite, 0x3871040 );
+	} // namespace item
+ 
+#define water_level_hash "%4492b731b436f99a30e9403019d5b930aa34e261"
+	namespace water_level {
+		declare( type_info, 0x1182d030 );
+ 
+		declare( test, 0x2770b70 );
+		declare( get_water_level, 0x278d570 );
+	} // namespace water_level
+ 
+#define convar_graphics_static_hash "%bf3ba0dc2a8e051c5b19debca3620f387825738f/%0b97670c3656f6bb56b49dc8a2bfe0695d127ade"
+	namespace convar_graphics_static {
+		declare( type_info, 0x118a18c0 );
+ 
+		declare( fov, 0x4c );
+	} // namespace convar_graphics_static
+ 
+	namespace base_fishing_rod {
+		declare( current_bobber, 0x310 );
+		declare( strain_gain_mod, 0x370 );
+		declare( aim_animation_ready, 0x398 );
+ 
+		declare( update_line_renderer, 0x4a56610 );
+	} // namespace base_fishing_rod
+ 
+	namespace game_manifest {
+		declare( guid_to_object, 0x6add320 );
+	} // namespace game_manifest
+ 
+#define game_manager_hash "%d67583f350dbfaf5821a8bd887ea2b019597d40f"
+	namespace game_manager {
+		declare( type_info, 0x118fcf88 );
+ 
+		declare( pool, 0x18 );
+ 
+		declare( create_prefab, 0x6b6e550 );
+	} // namespace game_manager
+ 
+#define game_manager_static_hash "%d67583f350dbfaf5821a8bd887ea2b019597d40f/%e092be0750e4899ef3a58b406127334e1bf85abb"
+	namespace game_manager_static {
+		declare( type_info, 0x11866048 );
+ 
+		declare( client, 0x8 );
+	} // namespace game_manager_static
+ 
+#define prefab_pool_collection_hash "%76e497ed848dae73827fe98d9952375d0ab8aa3d"
+	namespace prefab_pool_collection {
+		declare( type_info, 0x118c0da8 );
+ 
+		declare( storage, 0x18 );
+	} // namespace prefab_pool_collection
+ 
+#define prefab_pool_hash "%1c298875b31a9e6f0e2baaccd3d2fffca2ae740c"
+	namespace prefab_pool {
+		declare( type_info, 0x118507f0 );
+ 
+		declare( stack, 0x38 );
+	} // namespace prefab_pool
+ 
+	namespace crafting_queue {
+		declare( icons, 0x30 );
+	} // namespace crafting_queue
+ 
+#define crafting_queue_static_hash "CraftingQueue/%db444463a9bdd773bab39c70dd781a04615453c2"
+	namespace crafting_queue_static {
+		declare( type_info, 0x118d9ad8 );
+ 
+		declare( is_crafting, 0x18 );
+	} // namespace crafting_queue_static
+ 
+	namespace crafting_queue_icon {
+		declare( end_time, 0x5c );
+		declare( item, 0x70 );
+ 
+		declare( cancel, 0x55ceca0 );
+	} // namespace crafting_queue_icon
+ 
+#define console_system_hash "%aafadd1937d3754805feefb3d96343581147a1f4"
+	namespace console_system {
+		declare( run, 0x7d2a9d0 );
+	} // namespace console_system
+ 
+#define planner_static_hash "Planner/%0efa9ac69713e8d26b04fd4423167ce4e6c7a670"
+	namespace planner_static {
+		declare( type_info, 0x1180f7b8 );
+ 
+		declare( guide, 0x68 );
+	} // namespace planner_static
+ 
+#define planner_guide_hash "Planner/%986b9ac792938895f478fc8376618c3078bcd744"
+	namespace planner_guide {
+		declare( type_info, 0x118e4790 );
+ 
+		declare( last_placement, 0x60 );
+	} // namespace planner_guide
+ 
+	namespace planner {
+		declare( type_info, 0x11891118 );
+ 
+		declare( current_construction, 0x310 );
+	} // namespace planner
+ 
+	namespace construction {
+		declare( grades, 0x1a0 );
+	} // namespace construction
+ 
+	namespace building_block {
+		declare( block_definition, 0x368 );
+	} // namespace building_block
+ 
+	namespace gesture_collection {
+		declare( id_to_gesture, 0x70 );
+		declare( all_gestures, 0x20 );
+	} // namespace gesture_collection
+ 
+#define gesture_collection_static_hash "GestureCollection/%f6d58cee926d88e2d77a084322abc3bd667b523f"
+	namespace gesture_collection_static {
+		declare( type_info, 0x1191b060 );
+ 
+		declare( instance, 0x118 );
+	} // namespace gesture_collection_static
+ 
+	namespace held_entity {
+		declare( type_info, 0x118d6b90 );
+ 
+		declare( owner_item_uid, 0x2e0 );
+		declare( punches, 0x2d8 );
+		declare( view_model, 0x200 );
+ 
+		declare( get_owner_player, 0x3ce5d80 );
+		declare( get_owner_item, 0x3cdb4d0 );
+	} // namespace held_entity
+ 
+#define punch_entry_hash "HeldEntity/%ec4f60a1fd88f99121bdfcc6e2467bbc7bdf6104"
+	namespace punch_entry {
+		declare( duration, 0x10 );
+		declare( start_time, 0x14 );
+		declare( amount_added, 0x18 );
+		declare( amount, 0x24 );
+ 
+		declare( add_punch, 0x3cd86b0 );
+	} // namespace punch_entry
+ 
+	namespace base_view_model {
+		declare( iron_sights, 0xc8 );
+		declare( model, 0xf0 );
+		declare( lower, 0xd0 );
+		declare( bob, 0x100 );
+		declare( animator, 0x98 );
+ 
+		declare( get_active_model, 0x665c790 );
+	} // namespace base_view_model
+ 
+	namespace view_model {
+		declare( instance, 0x28 );
+ 
+		declare( play_int, 0x6b904c0 );
+		declare( play_str, 0x6b95040 );
+	} // namespace view_model
+ 
+	namespace water_body {
+		declare( mesh_filter, 0x70 );
+	} // namespace water_body
+ 
+#define water_system_static_hash "WaterSystem/%c0e76dbd6cedc1fd6043420cac7ac310c1f79ec9"
+	namespace water_system_static {
+		declare( type_info, 0x1181c998 );
+ 
+		declare( ocean, 0x48 );
+	} // namespace water_system_static
+ 
+	namespace water_system {
+		declare( get_ocean, 0x4b3f010 );
+	} // namespace water_system
+ 
+#define terrain_meta_static_hash "TerrainMeta/%a49338031df4fcb7ed6ca38dab09be67e4ce708c"
+	namespace terrain_meta_static {
+		declare( type_info, 0x11865cf0 );
+ 
+		declare( position, 0x30 );
+		declare( size, 0x1b0 );
+		declare( one_over_size, 0x48 );
+		declare( collision, 0x168 );
+		declare( height_map, 0x18 );
+		declare( splat_map, 0x150 );
+		declare( topology_map, 0xa8 );
+		declare( texturing, 0x140 );
+	} // namespace terrain_meta_static
+ 
+	namespace terrain_height_map {
+		declare( norm_y, 0x7c );
+	} // namespace terrain_height_map
+ 
+	namespace terrain_splat_map {
+		declare( num, 0x7c );
+	} // namespace terrain_splat_map
+ 
+	namespace terrain_texturing {
+		declare( mainland_shore_data, 0x98 );
+		declare( deep_sea_shore_data, 0x100 );
+	} // namespace terrain_texturing
+ 
+	namespace collections_native_array {
+		declare( buffer, 0x10 );
+		declare( length, 0x18 );
+	} // namespace collections_native_array
+ 
+#define world_static_hash "%d01d943699ea1f9376b065caa0481656495f6dcb/%3cdc95dbf075b57629aa0050d0bbb18ae0210719"
+	namespace world_static {
+		declare( type_info, 0x11899348 );
+ 
+		declare( size, 0x70 );
+	} // namespace world_static
+ 
+#define effect_data_hash "%2d538650e465f2b08c0353dbccbbdf0a6da7e1f7"
+	namespace effect_data {
+		declare( entity, 0x28 );
+		declare( source, 0x30 );
+	} // namespace effect_data
+ 
+#define effect_hash "%5e526917e221e49a45ee3ea950527ecd5f0afddd"
+	namespace effect {
+		declare( type_info, 0x118aca48 );
+ 
+		declare( pooled_string, 0x98 );
+		declare( world_pos, 0x8c );
+	} // namespace effect
+ 
+#define effect_network_hash "%12d1b049f0ccb95b23f108bb6c3bbd7d500097c5"
+	namespace effect_network {
+	} // namespace effect_network
+ 
+#define effect_network_static_hash "%12d1b049f0ccb95b23f108bb6c3bbd7d500097c5/%d3259e533dfbfdec1c05f302421a070c6f36984a"
+	namespace effect_network_static {
+		declare( type_info, 0x11931828 );
+ 
+		declare( effect, 0x8 );
+ 
+		declare( cctor, 0x7807d20 );
+	} // namespace effect_network_static
+ 
+#define game_object_ex_hash "%7742ed8278db3385c48de92afe3cc19e53a40fdb"
+	namespace game_object_ex {
+		declare( to_base_entity, 0x6ee41a0 );
+	} // namespace game_object_ex
+ 
+	namespace ui_death_screen {
+		declare( set_visible, 0x223c8f0 );
+	} // namespace ui_death_screen
+ 
+#define base_screen_shake_static_hash "BaseScreenShake/%351963fe88e1cbb28390febe7732f4ddff313a00"
+	namespace base_screen_shake_static {
+		declare( type_info, 0x11838900 );
+ 
+		declare( list, 0x20 );
+	} // namespace base_screen_shake_static
+ 
+	namespace deep_sea_manager {
+		declare( is_inside_deep_sea, 0x4668370 );
+	} // namespace deep_sea_manager
+ 
+	namespace flashbang_overlay {
+		declare( type_info, 0x118d0cf8 );
+ 
+		declare( instance, 0x0 );
+		declare( flash_length, 0x48 );
+	} // namespace flashbang_overlay
+ 
+#define string_pool_hash "%866b257b397f41cb60032c4531314070fa6373eb"
+	namespace string_pool {
+		declare( type_info, 0x118c1a80 );
+ 
+		declare( to_number, 0x30 );
+ 
+		declare( get, 0x572da50 );
+	} // namespace string_pool
+ 
+#define network_networkable_hash "%e2c4981114860f0a01294881b9667d5ae5b3b344"
+	namespace network_networkable {
+		declare( id, 0x20 );
+	} // namespace network_networkable
+ 
+#define network_net_hash "%6c4447006eb71f9f1a12fbcfc1225c1f401393b0"
+	namespace network_net {
+		declare( type_info, 0x119222c8 );
+ 
+		declare( cl, 0x0 );
+	} // namespace network_net
+ 
+#define network_client_hash "%d7cb52855f768fb06a0a9d85343eb546ccc5bd8d"
+	namespace network_client {
+		declare( connection, 0xf8 );
+		declare( connected_port, 0xd0 );
+		declare( server_name, 0xe8 );
+		declare( connected_address, 0x110 );
+ 
+		declare( create_networkable, 0x7e04f20 );
+		declare( destroy_networkable, 0x7e05fe0 );
+	} // namespace network_client
+ 
+#define network_base_network_hash "%e3b93863fd94a25fbac63902e5c911591d6f0890"
+	namespace network_base_network {
+	} // namespace network_base_network
+ 
+#define network_send_info_hash "%0142ba4dbd9ad6d38b12dbbc6b5dcc2ec28fcf3e"
+	namespace network_send_info {
+		declare( method, 0x0 );
+		declare( channel, 0x4 );
+		declare( priority, 0x8 );
+		declare( connections, 0x10 );
+		declare( connection, 0x18 );
+	} // namespace network_send_info
+ 
+#define network_message_hash "%6ff3502e94b0a5b367d6bb5c02587c80b40cdbdb"
+	namespace network_message {
+		declare( type, 0x20 );
+		declare( read, 0x18 );
+	} // namespace network_message
+ 
+#define network_net_read_hash "%b8c2da3a3269288d9942589eb8214e6c1c7c0de6"
+	namespace network_net_read {
+		declare( stream, 0x38 );
+	} // namespace network_net_read
+ 
+#define network_net_write_hash "%deb44a1ddce7c8445c1190fa3359f845cf23c582"
+	namespace network_net_write {
+		declare( stream, 0x50 );
+ 
+		declare( send, 0x7daa4a0 );
+	} // namespace network_net_write
+ 
+	namespace loot_panel {
+		declare( get_container_00, 0x4ae8010 );
+	} // namespace loot_panel
+ 
+	namespace ui_inventory {
+		declare( type_info, 0x118425d8 );
+ 
+		declare( close, 0x7978ae0 );
+	} // namespace ui_inventory
+ 
+	namespace growable_entity {
+		declare( type_info, 0x1181f8b0 );
+ 
+		declare( state, 0x358 );
+	} // namespace growable_entity
+ 
+	namespace tod_sky {
+		declare( get_instance, 0xe09d00 );
+	} // namespace tod_sky
+ 
+#define tod_sky_static_hash "TOD_Sky/%ccb1123c98c4a52c794b8411b40f14cc3d7b5565"
+	namespace tod_sky_static {
+		declare( type_info, 0x118feae0 );
+ 
+		declare( instances, 0x20 );
+	} // namespace tod_sky_static
+ 
+	namespace tod_cycle_parameters {
+		declare( get_date_time, 0xb7ad70 );
+	} // namespace tod_cycle_parameters
+ 
+	namespace tod_night_parameters {
+		declare( ambient_multiplier, 0x5c );
+	} // namespace tod_night_parameters
+ 
+	namespace resource_ref {
+		declare( guid, 0x10 );
+		declare( entity, 0x18 );
+	} // namespace resource_ref
+ 
+	namespace environment_manager {
+		declare( get, 0x4f7c1e0 );
+	} // namespace environment_manager
+ 
+	namespace list_component {
+		declare( instance_list, 0x8 );
+	} // namespace list_component
+ 
+#define list_hash_set_hash "%7a981305de8131aaf86083ea30713d283400a097<UIChat>"
+	namespace list_hash_set {
+		declare( vals, 0x10 );
+	} // namespace list_hash_set
+ 
+#define camera_update_hook_static_hash "CameraUpdateHook/%c5e7f0e1a57d67e649cb5dd59b00ac3f831e1782"
+	namespace camera_update_hook_static {
+		declare( type_info, 0x118cf218 );
+ 
+		declare( action, 0x20 );
+	} // namespace camera_update_hook_static
+ 
+	namespace steam_client_wrapper {
+		declare( get_avatar_texture, 0x6265330 );
+	} // namespace steam_client_wrapper
+ 
+#define buttons_con_button_hash "%a1c386e8254e8ef880ad4771d4c77a70bb9caf5c/%f828054933167b51bc05338edbb6943117b24a9c"
+	namespace buttons_con_button {
+		declare( type_info, 0x11839cc0 );
+ 
+		declare( is_down, 0x14 );
+	} // namespace buttons_con_button
+ 
+#define buttons_static_hash "%a1c386e8254e8ef880ad4771d4c77a70bb9caf5c/%593edc685edd5c25db0e04368cb012bfe3775e27"
+	namespace buttons_static {
+		declare( type_info, 0x118322e0 );
+ 
+		declare( pets, 0x28 );
+		declare( attack, 0x3d0 );
+		declare( attack2, 0x398 );
+		declare( forward, 0x290 );
+		declare( backward, 0x3a8 );
+		declare( right, 0x158 );
+		declare( left, 0x340 );
+		declare( sprint, 0x320 );
+		declare( use, 0x180 );
+	} // namespace buttons_static
+ 
+	namespace player_model {
+		declare( multi_mesh, 0x3b8 );
+		declare( position, 0x2f8 );
+		declare( view_matrix, 0x304 );
+		declare( new_velocity, 0x31c );
+ 
+		declare( rebuild_all, 0x4171dc0 );
+		declare( rebuild, 0x40c3240 );
+		declare( get_skin_color, -1 );
+	} // namespace player_model
+ 
+	namespace skinned_multi_mesh {
+		declare( renderers, 0x40 );
+	} // namespace skinned_multi_mesh
+ 
+	namespace progress_bar {
+		declare( type_info, 0x1182cb28 );
+ 
+		declare( instance, 0x8 );
+		declare( time_counter, 0x24 );
+	} // namespace progress_bar
+ 
+	namespace bow_weapon {
+		declare( attack_ready, 0x4d8 );
+		declare( was_aiming, 0x4e0 );
+	} // namespace bow_weapon
+ 
+#define convar_admin_static_hash "%f1a0447bb9b32a8a0fdd5295131d96b60d98f677/%209e354afcf700ae61b93ada2437b18b9d333c73"
+	namespace convar_admin_static {
+		declare( type_info, 0x119045e8 );
+ 
+		declare( admintime, 0x60 );
+	} // namespace convar_admin_static
+ 
+#define convar_player_static_hash "%1f09a1d4eb91f84df4b04b3de27760e9a4e9c6d7/%925a0b0677f4f05c75d2626bc8c34c7eb661bb13"
+	namespace convar_player_static {
+		declare( type_info, 0x118b56f0 );
+ 
+		declare( client_tick_interval, 0x1c );
+	} // namespace convar_player_static
+ 
+	namespace code_lock {
+		declare( has_code, 0x270 );
+		declare( has_auth, 0x280 );
+		declare( has_guest_auth, 0x281 );
+	} // namespace code_lock
+ 
+	namespace auto_turret {
+		declare( authorized_players, 0x428 );
+		declare( last_yaw, 0x440 );
+	} // namespace auto_turret
+ 
+	namespace flame_turret {
+		declare( aim_dir, 0x3fc );
+	} // namespace flame_turret
+ 
+#define map_view_static_hash "MapView/%878f4a9fa921da28fdf03fe2f9d0a36d1b44ec03"
+	namespace map_view {
+		declare( world_pos_to_image_pos, 0x2184890 );
+	} // namespace map_view
+ 
+	namespace terrain_map {
+		declare( res, 0x40 );
+	} // namespace terrain_map
+ 
+	namespace terrain_meta {
+		declare( normalize, 0x6de9940 );
+	} // namespace terrain_meta
+ 
+	namespace terrain_map {
+		declare( src, 0x48 );
+		declare( dst, 0x58 );
+	} // namespace terrain_map
+ 
+#define game_physics_hash "%4d47cb1f94e80b6229928a3776eee76ec29c9536"
+	namespace game_physics {
+		declare( trace, 0x3900060 );
+		declare( trace_all_unordered, 0x38dd5c0 );
+		declare( line_of_sight_internal, 0x38cf380 );
+		declare( verify_collider, 0x3910c90 );
+		declare( verify, 0x38fcd50 );
+	} // namespace game_physics
+ 
+	namespace player_corpse {
+		declare( client_clothing, 0x350 );
+	} // namespace player_corpse
+ 
+	namespace smoke_grenade {
+		declare( type_info, 0x118e9f38 );
+ 
+		declare( smoke_effect_instance, 0x2b0 );
+	} // namespace smoke_grenade
+ 
+	namespace grenade_weapon {
+		declare( drop, 0x3ac );
+	} // namespace grenade_weapon
+ 
+	namespace viewmodel_lower {
+		declare( should_lower, 0x28 );
+		declare( rotate_angle, 0x2c );
+	} // namespace viewmodel_lower
+ 
+#define convar_client_static_hash "%26984b462a3999cd8510b17a97852e77cda80d8a/%5c3ffef0f12a9491c33c3eaee4cc0929454bea5f"
+	namespace convar_client_static {
+		declare( type_info, 0x11818930 );
+ 
+		declare( camlerp, 0x1b0 );
+		declare( camspeed, 0xbc );
+		declare( camlookspeed, 0xdc );
+	} // namespace convar_client_static
+ 
+#define facepunch_network_raknet_client_hash "%f33b797d581f8279d1543ac4e0727a6b1ba2ac8a"
+	namespace facepunch_network_raknet_client {
+		declare( type_info, 0x118c9be0 );
+ 
+		declare( is_connected, 0x7e8c6e0 );
+	} // namespace facepunch_network_raknet_client
+ 
+#define encrypted_value_hash "%761904db7315ba1dd28897d04f1ad00cc39aa1d5<System/Single>"
+	namespace encrypted_value {
+		declare( value, 0x10 );
+		declare( padding, 0x14 );
+	} // namespace encrypted_value
+ 
+#define hidden_value_hash "%d4ee500f992d6908239bc3d5cd254f8bc8e1baa9<BaseNetworkable/%0cb3d4e2e62858052f130c001e3950bf28dbc059>"
+	namespace hidden_value {
+		declare( handle, 0x18 );
+		declare( access_count, 0x20 );
+		declare( has_value, 0x10 );
+	} // namespace hidden_value
+ 
+	namespace ui_fog_overlay {
+		declare( type_info, 0x118aa918 );
+ 
+		declare( instance, 0x8 );
+	} // namespace ui_fog_overlay
+ 
+#define buffer_stream_hash "%8360e896e2f7ee22e0688d9aa2ea7ccffee1f13d"
+	namespace buffer_stream {
+		declare( buffer, 0x28 );
+ 
+		declare( ensure_capacity, 0xc5325f0 );
+	} // namespace buffer_stream
+ 
+	namespace attack_helicopter_rockets {
+		declare( get_projected_hit_pos, 0x726efb0 );
+	} // namespace attack_helicopter_rockets
+ 
+#define console_system_command_hash "%aafadd1937d3754805feefb3d96343581147a1f4/%4f5bd0bff521ce4539477465e70ccb47085cc175"
+	namespace console_system_command {
+		declare( type_info, 0x1188c508 );
+ 
+		declare( get_overide, 0x38 );
+		declare( set_overide, 0x80 );
+		declare( call, 0x60 );
+	} // namespace console_system_command
+ 
+#define console_system_index_client_hash "%aafadd1937d3754805feefb3d96343581147a1f4/%9864aa36558fdfd8a7f6a2eaaefe4e15c323f553.%b9bf4fb2c8ca5b0ba8d0b48e86a9eaee415b35bd"
+	namespace console_system_index_client {
+		declare( find, 0x7d3c3c0 );
+	} // namespace console_system_index_client
+ 
+#define entity_ref_hash "%88c682362dd01474e1c6f4e603eba42d3eb464c7"
+	namespace entity_ref {
+		declare( get, 0x4604060 );
+	} // namespace entity_ref
+ 
+#define player_team_hash "%e1d869e13d3d33335b9b7d8c7cd5a3b55fb06c4d"
+	namespace player_team {
+		declare( invites, 0x18 );
+		declare( members, 0x48 );
+	} // namespace player_team
+ 
+#define player_team_team_member_hash "%e1d869e13d3d33335b9b7d8c7cd5a3b55fb06c4d/%64be84655151a84f795fe5179230d5ae2d992a6a"
+	namespace player_team_team_member {
+		declare( position, 0x14 );
+		declare( health_fraction, 0x10 );
+		declare( display_name, 0x28 );
+		declare( user_id, 0x38 );
+		declare( team_id, 0x40 );
+		declare( wounded, 0x20 );
+		declare( online, 0x48 );
+	} // namespace player_team_team_member
+ 
+#define facepunch_output_hash "%cdb7b3ce1cb78ed880f2853b28d06cfd9dddce49/%456aad7251bbcf3d2903750d55c4d376b6315bd0"
+	namespace facepunch_output {
+		declare( type_info, 0x11859b88 );
+	} // namespace facepunch_output
+ 
+#define facepunch_output_static_hash "%cdb7b3ce1cb78ed880f2853b28d06cfd9dddce49/%456aad7251bbcf3d2903750d55c4d376b6315bd0"
+	namespace facepunch_output_static {
+		declare( type_info, 0x11859b88 );
+ 
+		declare( history_output, 0x0 );
+	} // namespace facepunch_output_static
+ 
+#define proto_buf_projectile_shoot_hash "%ea494aa2ff75fdb4593bb0ad9208c6473cea9dca"
+	namespace proto_buf_projectile_shoot {
+		declare( projectiles, 0x18 );
+	} // namespace proto_buf_projectile_shoot
+ 
+#define proto_buf_projectile_shoot_projectile_hash "%ea494aa2ff75fdb4593bb0ad9208c6473cea9dca/%d56ddc61930e992fc0015ba785fec7cec089a69b"
+	namespace proto_buf_projectile_shoot_projectile {
+		declare( start_vel, 0x10 );
+		declare( start_pos, 0x24 );
+		declare( seed, 0x1c );
+		declare( projectile_id, 0x30 );
+	} // namespace proto_buf_projectile_shoot_projectile
+ 
+#define proto_buf_player_projectile_update_hash "%8803325cb1859db4fc1cab6c4461054a1ae64534"
+	namespace proto_buf_player_projectile_update {
+		declare( cur_position, 0x10 );
+		declare( cur_velocity, 0x1c );
+		declare( projectile_id, 0x30 );
+		declare( travel_time, 0x2c );
+	} // namespace proto_buf_player_projectile_update
+ 
+#define proto_buf_player_projectile_attack_hash "%6cd07cf1141edf07a5d8dc65706efdfe27d636db"
+	namespace proto_buf_player_projectile_attack {
+		declare( player_attack, 0x18 );
+		declare( hit_velocity, 0x20 );
+		declare( travel_time, 0x10 );
+		declare( hit_distance, 0x30 );
+	} // namespace proto_buf_player_projectile_attack
+ 
+#define proto_buf_player_attack_hash "%1822fdc0e707d99be0cea2bc61518a287c35793b"
+	namespace proto_buf_player_attack {
+		declare( attack, 0x20 );
+		declare( projectile_id, 0x14 );
+	} // namespace proto_buf_player_attack
+ 
+#define proto_buf_attack_hash "%54265f6b287a133b39d3481897ed773b2e1622f1"
+	namespace proto_buf_attack {
+		declare( point_start, 0x6c );
+		declare( point_end, 0x78 );
+		declare( hit_id, 0x50 );
+		declare( hit_bone, 0x38 );
+		declare( hit_normal_local, 0x10 );
+		declare( hit_position_local, 0x18 );
+		declare( hit_normal_world, 0x60 );
+		declare( hit_position_world, 0x40 );
+		declare( hit_part_id, 0x7c );
+		declare( hit_material_id, 0x28 );
+		declare( src_parent_id, 0x30 );
+	} // namespace proto_buf_attack
+ 
+#define is_connected_hash "%abd3df77d84d4f05a2c7ff630015ac2d8d9adea8"
+#define on_attacked_hash "%3ab0edf5cc2e23360e6e01ae7d3ff3ffdc3b8f4d"
+#define write_to_stream_delta_hash "%200c4818bd93f9abb0a2de774b6093e11b52bedc"
+#define write_to_stream_hash "%f9a0a69f17e7925672f611a43c104bc8e968cb74"
+#define client_input_hash "%2d2ea455c7353ecf480ba9d61fc837c68efe6ff7"
+#define try_to_move_hash "%4b52723aa16617418478f08d9a78b42194f0e44c"

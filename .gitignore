@@ -1,0 +1,9 @@
+*
+!.gitignore
+!rust_esp_mvc/
+!rust_esp_mvc/**
+!st_try.py
+
+rust_esp_mvc/dump.cs
+rust_esp_mvc/il2cpp.h
+rust_esp_mvc/script.json

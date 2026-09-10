@@ -253,29 +253,39 @@ class Settings:
         # Deadzone in degrees. Skip writes when the angular distance to the
         # target is smaller than this, to avoid sub-pixel hunting jitter.
         self.aim_deadzone_deg = 0.15
-        # Compensate for gravity drop + target lead on projectile weapons
-        # (bow/crossbow/nailgun) instead of a straight-line aim point.
-        # Hitscan weapons are unaffected either way. See
-        # aim_engine.PROJECTILE_TABLE for the per-weapon speed/gravity used.
-        self.aim_projectile_lead = True
-        # Base gravity for the ballistics solve, in m/s^2. Multiplied by the
-        # projectile's own gravityModifier (read live). Unity's default is
-        # 9.81 and Physics.gravity is a native extern property with no
-        # readable offset, so this is the one assumed value in the chain --
-        # exposed here because it scales the whole drop linearly.
-        self.aim_gravity = 9.81
-        # Smoothing time constant (seconds) for the target velocity used to
-        # lead the shot. The raw per-tick estimate swings by 2+ m/s and flips
-        # direction; a bow's ~0.75 s flight turns that into metres of lead
-        # jitter. 0 = raw (jittery), higher = steadier but slower to react to
-        # a genuine change of direction.
-        #
-        # Kept SHORT on purpose. A long tau steadies a strafing target but
-        # lags a genuine sprint by the same amount -- at 0.60 s a player
-        # running in a straight line was led short for the whole run, which
-        # is exactly the preshot case. The jitter is handled by the coherence
-        # gate in VelocitySmoother instead, which costs no response time.
-        self.aim_lead_smooth_s = 0.15
+
+        # ── Target selection ──
+        # Ranking used to be pure angular distance from the crosshair, which
+        # is why it locked "someone else": a player 200 m out but dead centre
+        # beat the one at 20 m and three degrees off. This biases the score
+        # toward nearer targets -- 0.0 restores the old pure-angle behaviour.
+        self.aim_distance_bias = 0.5
+        # Ignore targets past this range entirely (0 = no limit).
+        self.aim_max_distance_m = 300.0
+        # Skip players on your own team (BasePlayer.currentTeam). Fails OPEN:
+        # if the field cannot be read the player counts as an enemy, because
+        # silently disabling the aimbot is worse than the odd teammate.
+        self.aim_team_check = True
+        # Hold this key to freeze the current target -- nothing else in the
+        # cone can steal it. 0 = disabled. The scoring above is a heuristic
+        # and a heuristic picks wrong sometimes; this is the manual override.
+        self.aim_lock_key = 0
+        # aim_projectile_lead (the open-loop drop/lead aim-point adjustment)
+        # and aim_gravity (its user-facing base-gravity tunable) removed
+        # 2026-09-10: ProjectileHoming below now does 100% of the ballistics
+        # compensation, continuously, off the arrow's own live position,
+        # which made a separate upfront solve redundant on top of it.
+        # Gravity is still used internally by homing's own correction math
+        # (GRAVITY_MPS2 in aim_engine.py) but is no longer exposed as a
+        # setting: a closed loop that re-aims every tick against the
+        # target's ACTUAL position self-corrects for a slightly-wrong
+        # gravity constant in a way the old one-shot solve never did, so
+        # tuning it stopped being worth the UI. aim_lead_smooth_s (target-
+        # velocity lead smoothing) was removed the same session for the
+        # same reason -- predicting where the target will BE became
+        # redundant once homing corrects toward where they ARE, every tick.
+        # If either is ever needed again for a homing-OFF use case,
+        # reintroduce deliberately rather than reverting this wholesale.
         # Steer our own arrows/bolts/nails onto the target while they fly.
         # OFF by default and deliberately so: unlike everything else here it
         # writes state the SERVER re-simulates, and a projectile that leaves

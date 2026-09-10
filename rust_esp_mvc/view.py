@@ -738,6 +738,64 @@ class OverlayView(base.OverlayView):
         _, s.aim_fov_deg = imgui.slider_float(
             "FOV cone (deg)", s.aim_fov_deg, 1.0, 45.0
         )
+
+        _, s.aim_distance_bias = imgui.slider_float(
+            "Prefer nearer targets", s.aim_distance_bias, 0.0, 3.0
+        )
+        if imgui.is_item_hovered():
+            imgui.set_tooltip(
+                "Ranking used to be the angle from your crosshair and\n"
+                "nothing else -- which is why it locked someone else: a\n"
+                "player 200 m out but dead centre beat the one at 20 m and\n"
+                "three degrees off, even though the near one is obviously\n"
+                "who you are shooting at.\n"
+                "Degrees of penalty per 25 m of range.\n"
+                "Higher = stronger preference for close players.\n"
+                "0 = the old pure-angle behaviour."
+            )
+
+        _, s.aim_max_distance_m = imgui.slider_float(
+            "Max target range (m)", s.aim_max_distance_m, 0.0, 500.0
+        )
+        if imgui.is_item_hovered():
+            imgui.set_tooltip(
+                "Ignore anyone past this. 0 = no limit."
+            )
+
+        _, s.aim_team_check = imgui.checkbox(
+            "Skip teammates", s.aim_team_check
+        )
+        if imgui.is_item_hovered():
+            imgui.set_tooltip(
+                "Reads BasePlayer.currentTeam and drops players on your\n"
+                "own team from the target list. They are still DRAWN by\n"
+                "the ESP -- you want to see your team, just not aim at it.\n"
+                "\n"
+                "Fails OPEN: if the field cannot be read a player counts\n"
+                "as an enemy, because silently switching the aimbot off is\n"
+                "much harder to notice than the odd teammate slipping in.\n"
+                "Check the [AIM-TEAM] debug line against a real teammate\n"
+                "the first time -- two dumps disagree on this offset."
+            )
+
+        lock_labels = ["Off", "Mouse 4", "Mouse 5", "Shift (left)",
+                       "Alt (left)", "Control (left)", "C", "V"]
+        lock_codes = [0, 0x05, 0x06, 0xA0, 0xA4, 0xA2, 0x43, 0x56]
+        try:
+            lock_cur = lock_codes.index(s.aim_lock_key)
+        except ValueError:
+            lock_cur = 0
+        lock_changed, lock_cur = imgui.combo("Lock target key", lock_cur, lock_labels)
+        if lock_changed:
+            s.aim_lock_key = lock_codes[lock_cur]
+        if imgui.is_item_hovered():
+            imgui.set_tooltip(
+                "Hold to freeze the current target -- nothing else in the\n"
+                "cone can steal it, whatever the ranking says.\n"
+                "The scoring above is a heuristic and a heuristic picks\n"
+                "wrong sometimes; this is the manual override for when it\n"
+                "matters and you already know who you want."
+            )
         if imgui.is_item_hovered():
             imgui.set_tooltip(
                 "World-space angular FOV. Only targets within this\n"
@@ -755,85 +813,52 @@ class OverlayView(base.OverlayView):
                 "the crosshair is already on target."
             )
 
-        _, s.aim_projectile_lead = imgui.checkbox(
-            "Projectile drop/lead (bow/crossbow/nailgun)", s.aim_projectile_lead
+        # The old "Projectile drop/lead" open-loop aim-point adjustment (and
+        # its "Gravity (m/s2)" tunable) is gone -- homing below now does
+        # 100% of the ballistics compensation, continuously, off the
+        # arrow's own live position, which made a separate upfront solve
+        # redundant on top of it. Gravity is still used internally (it has
+        # to be, for homing's own correction math) but is no longer exposed
+        # as a setting: a closed loop that re-aims every tick against the
+        # target's ACTUAL position self-corrects for a slightly-wrong
+        # gravity constant in a way the old one-shot solve never did.
+        _, s.aim_projectile_homing = imgui.checkbox(
+            "Steer arrows in flight (homing)", s.aim_projectile_homing
         )
         if imgui.is_item_hovered():
             imgui.set_tooltip(
-                "Aims ahead of a moving target and above their current\n"
-                "position to compensate for arrow/bolt/nail travel time\n"
-                "and gravity drop. No effect on hitscan weapons.\n"
+                "Curves your own arrows onto the target while they fly.\n"
                 "Speed, drag and gravityModifier are read off real\n"
                 "projectiles in flight after your first shot with a\n"
                 "weapon ([AIM-BALLISTIC] src=measured). Before that it\n"
-                "falls back to aim_engine.PROJECTILE_TABLE."
+                "falls back to aim_engine.PROJECTILE_TABLE. Bow/crossbow/\n"
+                "nailgun only -- no effect on hitscan weapons.\n"
+                "\n"
+                "This is NOT the same risk as everything else here. The\n"
+                "rest reads memory; this writes state the SERVER\n"
+                "re-simulates. Rust verifies periodic projectile\n"
+                "positions against the velocity it was told at launch,\n"
+                "so a projectile that leaves that trajectory is a LOGGED\n"
+                "violation -- not just a shot that fails to register.\n"
+                "\n"
+                "The turn cap below is the entire safety margin. Small\n"
+                "corrections near the target stay inside the tolerance\n"
+                "the server allows for sway and movement; hard turns do\n"
+                "not. Off by default on purpose."
             )
 
-        if s.aim_projectile_lead:
-            _, s.aim_gravity = imgui.slider_float(
-                "Gravity (m/s2)", s.aim_gravity, 5.0, 20.0
-            )
-            if imgui.is_item_hovered():
-                imgui.set_tooltip(
-                    "Base gravity, multiplied by each projectile's own\n"
-                    "gravityModifier (read live). This is the only value\n"
-                    "in the ballistics chain that is assumed rather than\n"
-                    "read: Unity's Physics.gravity is a native property\n"
-                    "with no readable offset. 9.81 is Unity's default.\n"
-                    "It scales drop linearly -- if arrows land short or\n"
-                    "long by the same proportion at EVERY range, change\n"
-                    "this, not the per-weapon speeds."
-                )
-
-            _, s.aim_lead_smooth_s = imgui.slider_float(
-                "Lead smoothing (s)", s.aim_lead_smooth_s, 0.0, 1.5
+        if s.aim_projectile_homing:
+            _, s.aim_homing_turn_dps = imgui.slider_float(
+                "Homing turn cap (deg/s)", s.aim_homing_turn_dps, 10.0, 360.0
             )
             if imgui.is_item_hovered():
                 imgui.set_tooltip(
-                    "Smoothing on the TARGET's velocity, not on your aim.\n"
-                    "Keep this SHORT (0.10-0.20). A long value steadies a\n"
-                    "strafing target but lags a real sprint by just as much,\n"
-                    "so a player running straight gets led short for the\n"
-                    "whole run -- the preshot case you actually want.\n"
-                    "Jitter is handled separately by the coherence gate:\n"
-                    "consistent motion gets the full lead, thrashing motion\n"
-                    "collapses the lead toward the body. Watch coh= in the\n"
-                    "[AIM-BALLISTIC] line -- ~1.0 running straight, ~0.2\n"
-                    "when a target is juking."
+                    "How fast an arrow may change direction. Lower is\n"
+                    "safer and subtler; higher bends the shot harder and\n"
+                    "leaves the launch trajectory further behind.\n"
+                    "60 deg/s corrects a near miss without the flight\n"
+                    "path looking impossible."
                 )
-
-            _, s.aim_projectile_homing = imgui.checkbox(
-                "Steer arrows in flight (homing)", s.aim_projectile_homing
-            )
-            if imgui.is_item_hovered():
-                imgui.set_tooltip(
-                    "Curves your own arrows onto the target while they fly.\n"
-                    "\n"
-                    "This is NOT the same risk as everything else here. The\n"
-                    "rest reads memory; this writes state the SERVER\n"
-                    "re-simulates. Rust verifies periodic projectile\n"
-                    "positions against the velocity it was told at launch,\n"
-                    "so a projectile that leaves that trajectory is a LOGGED\n"
-                    "violation -- not just a shot that fails to register.\n"
-                    "\n"
-                    "The turn cap below is the entire safety margin. Small\n"
-                    "corrections near the target stay inside the tolerance\n"
-                    "the server allows for sway and movement; hard turns do\n"
-                    "not. Off by default on purpose."
-                )
-
-            if s.aim_projectile_homing:
-                _, s.aim_homing_turn_dps = imgui.slider_float(
-                    "Homing turn cap (deg/s)", s.aim_homing_turn_dps, 10.0, 360.0
-                )
-                if imgui.is_item_hovered():
-                    imgui.set_tooltip(
-                        "How fast an arrow may change direction. Lower is\n"
-                        "safer and subtler; higher bends the shot harder and\n"
-                        "leaves the launch trajectory further behind.\n"
-                        "60 deg/s corrects a near miss without the flight\n"
-                        "path looking impossible."
-                    )
 
         imgui.spacing()
         imgui.text_colored(base._rgba(*base._ACCENT), "Motion")
@@ -1040,3 +1065,4 @@ class OverlayView(base.OverlayView):
             imgui.spacing()
         if imgui.button("Reset to defaults"):
             s.reset_colors()
+# MARKER_TEST

@@ -64,18 +64,31 @@ OFF_YAW_MAX             = 0x1C
 OFF_PITCH_MIN           = 0x20
 OFF_PITCH_MAX           = 0x24
 
-# Inventory chain offsets -- kept in sync with legacy_runtime.OFF, refreshed
-# 2026-09-08 against rust-dumper-post's live IL2CPP-reflection dump (ground
-# truth from the running game, not disassembly guessing -- see the matching
-# comments in legacy_runtime.OFF for the full reasoning).
-OFF_INVENTORY           = 0x510   # BasePlayer.inventory (HV wrapper)
-OFF_CL_ACTIVE_ITEM      = 0x588   # BasePlayer.clActiveItem (unchanged)
-OFF_CONTAINER_BELT      = 0x28    # PlayerInventory.containerBelt -- 2026-09-05 screenshot-verified value, unchanged through the 09-08/09-09 wear/main churn (see OFF.container_belt)
-OFF_ITEM_LIST           = 0x78    # ItemContainer.itemList -- live-confirmed 2026-09-08 (was 0x38 unconfirmed, was 0x68 stale)
-OFF_ITEM_UID            = 0xD8    # Item.uid (ItemId-typed field) -- live-confirmed 2026-09-08 (was 0x10 unconfirmed, was 0xD0 stale)
-OFF_ITEM_HELD_ENTITY    = 0xB8    # Item's "currently deployed" EntityRef field -- was 0x38 (that's Item.worldEnt, a different field entirely; this was the actual held-item/no-recoil bug, see OFF.item_heldEntity)
-OFF_ITEM_DEFINITION     = 0xA0    # Item.info (ItemDefinition) -- live-confirmed 2026-09-08
-OFF_ITEMDEF_SHORTNAME   = 0x28    # ItemDefinition.shortname (Il2CppString*) (unchanged)
+# Inventory chain offsets -- kept in sync with legacy_runtime.OFF (this is a
+# SEPARATE copy, not a reference to it -- the two have drifted apart before;
+# see the matching comments in legacy_runtime.OFF for the full reasoning
+# behind each value here). Refreshed 2026-09-10 after a game update reshuffled
+# the whole Item class (proven by item_definition alone moving 0xA0 -> 0x70).
+OFF_INVENTORY           = 0x3B8   # BasePlayer.inventory (HV wrapper) -- game update 2026-09-10 (was 0x510)
+OFF_CL_ACTIVE_ITEM      = 0x588   # BasePlayer.clActiveItem (unchanged through the 2026-09-10 update)
+OFF_CONTAINER_BELT      = 0x78    # PlayerInventory.containerBelt -- game update 2026-09-10 (was 0x28). Two rounds of live in-game correction (0x30, then 0x60, both wrong) -- see OFF.container_belt for the combined reasoning.
+OFF_ITEM_LIST           = 0x48    # ItemContainer.itemList -- game update 2026-09-10 (was 0x78). Dropped from this file by mistake in the same edit that updated the line above -- see OFF.item_list for the dump.cs evidence.
+# NOTE the two offsets below were ALREADY inconsistent with legacy_runtime.OFF
+# before this update (item_uid was 0xD8 there vs 0xD8 here -- matched; but
+# item_heldEntity was 0x80 in legacy_runtime.OFF vs 0xB8 here -- did NOT
+# match). That divergence predates today and is worth a look independent of
+# the update. Both fields are equally untrustworthy right now regardless:
+# the whole Item class moved, so neither old numeric value can be right.
+OFF_ITEM_UID            = 0x80    # game update 2026-09-10, confirmed by a second independent dumper source (was 0xB8 reasoned guess, was 0xD8 pre-update). ItemId is a single-ulong wrapper struct, so a plain 8-byte read here is correct. See OFF.item_uid for the corroboration.
+# OFF_ITEM_HELD_ENTITY is GONE -- resolved live instead (see
+# HELD_ENTITY_CANDIDATES / _probe_held_entity below), because guessing this
+# one field wrong is what broke held-items AND no-recoil together, twice,
+# in this project's history. A fixed offset here would just be the third
+# guess. Confirmed live 2026-09-10: [NORECOIL-DBG] showed weapon
+# identification working (uid fixed) while held_entity stayed null (the
+# offset never having been fixed) -- exactly the failure this replaces.
+OFF_ITEM_DEFINITION     = 0x70    # Item.info (ItemDefinition) -- game update 2026-09-10 (was 0xA0), confirmed by dump.cs AND offsets_decrypts_export.h
+OFF_ITEMDEF_SHORTNAME   = 0x28    # ItemDefinition.shortname (Il2CppString*) (unchanged through the 2026-09-10 update)
 
 RESOLVE_INTERVAL = 0.5  # seconds between weapon re-resolution
 
@@ -96,6 +109,13 @@ class RecoilEngine:
         self._cached_bp_projectile = 0
         self._cached_recoil_props = 0
         self._cached_new_recoil = 0
+        # Names which of the ~11 steps in _resolve_weapon last failed (or
+        # "ok ..." on success), so a "weapon not identified" in the aim log
+        # points at a specific stage instead of the whole chain.
+        self.last_status = "not resolved yet"
+        self._next_tick_debug_at = 0.0
+        # Which of HELD_ENTITY_CANDIDATES actually validated, once probed.
+        self._held_entity_off = None
 
     # ── Safe reads ───────────────────────────────────────────────────────
 
@@ -145,10 +165,59 @@ class RecoilEngine:
 
     # ── Resolve the local weapon ─────────────────────────────────────────
 
+    # dump.cs (TypeDefIndex 4543): the EntityRef-shaped struct Item.heldEntity
+    # and Item.worldEnt both use is a plain value type with the BaseEntity*
+    # pointer as its OWN field 0 -- `internal BaseEntity ...; // 0x0` -- so
+    # no indirection inside the struct: item_ptr + candidate_off IS the
+    # pointer, the same as if it were a bare field. Both candidates come
+    # from that struct type recurring at exactly two offsets on Item post
+    # the 2026-09-10 update (see OFF.item_heldEntity's comment); which one
+    # is heldEntity vs worldEnt is the thing this probes for live rather
+    # than guesses -- guessing it wrong is what broke held-items AND
+    # no-recoil together, twice, before in this project's history.
+    HELD_ENTITY_CANDIDATES = (0x20, 0xC0)
+
+    def _probe_held_entity(self, matched_item):
+        """held_entity off the CURRENTLY EQUIPPED item (matched_item already
+        matched clActiveItem's uid), choosing whichever EntityRef-shaped
+        candidate resolves to something that looks like a real weapon.
+
+        The check is `candidate + OFF_RECOIL_PROPS` also being a valid
+        pointer -- a live weapon entity has RecoilProperties, a null/wrong
+        field does not. This is a positive identity check, not just "is a
+        pointer" (worldEnt being non-null for an unrelated reason, e.g. a
+        stale value type default, would still pass a bare pointer-validity
+        test but fail this one).
+        """
+        off = self._held_entity_off
+        if off is not None:
+            cand = self._safe_u64(matched_item + off)
+            if legacy._valid_user_ptr(cand) and legacy._valid_user_ptr(
+                    self._safe_u64(cand + OFF_RECOIL_PROPS)):
+                return cand
+            self._held_entity_off = None      # stopped validating; re-probe
+
+        for off in self.HELD_ENTITY_CANDIDATES:
+            cand = self._safe_u64(matched_item + off)
+            if not legacy._valid_user_ptr(cand):
+                continue
+            if legacy._valid_user_ptr(self._safe_u64(cand + OFF_RECOIL_PROPS)):
+                self._held_entity_off = off
+                return cand
+        return 0
+
     def _resolve_weapon(self, model):
         """Find the local player's held BaseProjectile and weapon shortname.
 
         Returns (base_projectile_ptr, weapon_key) or (0, "").
+
+        11 different steps can fail here (inventory decrypt, belt, item
+        list, no uid match, ...) and until now every one of them returned
+        the exact same silent (0, "") -- "weapon not identified" in the aim
+        log meant any of the eleven, with no way to tell which from the
+        outside. self.last_status names the one that actually fired, so a
+        game update that moves ONE offset in this chain (as happened
+        2026-09-10) points straight at itself instead of a guessing session.
         """
         now = time.perf_counter()
         # Cache on EITHER result: on builds where heldEntity never resolves the
@@ -173,35 +242,41 @@ class RecoilEngine:
                 local_bp = cache.get(local_pm, 0)
         if not legacy._valid_user_ptr(local_bp):
             self._cached_bp_projectile = 0
+            self.last_status = "no local BasePlayer"
             return 0, ""
 
         # Read clActiveItem (this is the active item UID, possibly encrypted)
         cl_active_raw = self._safe_u64(local_bp + OFF_CL_ACTIVE_ITEM)
         if not cl_active_raw:
             self._cached_bp_projectile = 0
+            self.last_status = f"clActiveItem raw read failed (bp+0x{OFF_CL_ACTIVE_ITEM:X})"
             return 0, ""
 
         # Decrypt clActiveItem to get the UID
         try:
             active_uid = legacy.decrypt_cl_active_item(cl_active_raw) & 0xFFFFFFFFFFFFFFFF
-        except Exception:
+        except Exception as exc:
             self._cached_bp_projectile = 0
+            self.last_status = f"decrypt_cl_active_item raised {exc!r}"
             return 0, ""
 
         if not active_uid:
             self._cached_bp_projectile = 0
+            self.last_status = "decrypted active_uid is 0 (nothing equipped, or wrong decrypt)"
             return 0, ""
 
         # Walk inventory → belt → items to find the matching item
         inv_wrapper = self._safe_u64(local_bp + OFF_INVENTORY)
         if not legacy._valid_user_ptr(inv_wrapper):
             self._cached_bp_projectile = 0
+            self.last_status = f"inventory wrapper invalid (bp+0x{OFF_INVENTORY:X})"
             return 0, ""
 
         # Decrypt the inventory HV wrapper
         hv_raw = legacy._read_hv_handle(self.mem, inv_wrapper, attempts=2)
         if not hv_raw:
             self._cached_bp_projectile = 0
+            self.last_status = "inventory HiddenValue handle read failed (_hasValue false, or read failed)"
             return 0, ""
 
         ga = getattr(model, 'ga', 0)
@@ -209,18 +284,21 @@ class RecoilEngine:
         inv_ptr = legacy.resolve_tagged_handle(self.mem, inv_dec, ga)
         if not legacy._valid_user_ptr(inv_ptr):
             self._cached_bp_projectile = 0
+            self.last_status = f"inventory handle resolved to garbage (raw=0x{hv_raw:X} dec=0x{inv_dec:X})"
             return 0, ""
 
         # Inventory → containerBelt
         belt = self._safe_u64(inv_ptr + OFF_CONTAINER_BELT)
         if not legacy._valid_user_ptr(belt):
             self._cached_bp_projectile = 0
+            self.last_status = f"containerBelt invalid (inv+0x{OFF_CONTAINER_BELT:X})"
             return 0, ""
 
         # Belt → itemList (List<Item>)
         item_list = self._safe_u64(belt + OFF_ITEM_LIST)
         if not legacy._valid_user_ptr(item_list):
             self._cached_bp_projectile = 0
+            self.last_status = f"belt.itemList invalid (belt+0x{OFF_ITEM_LIST:X})"
             return 0, ""
 
         items_arr = self._safe_u64(item_list + OFF.ListHashSet_vals)
@@ -228,6 +306,9 @@ class RecoilEngine:
 
         if not legacy._valid_user_ptr(items_arr) or items_count < 1 or items_count > 12:
             self._cached_bp_projectile = 0
+            self.last_status = (
+                f"itemList array/count implausible (arr=0x{items_arr:X} count={items_count})"
+            )
             return 0, ""
 
         # Read all item pointers
@@ -235,24 +316,40 @@ class RecoilEngine:
             ptrs_data = self.mem.read(items_arr + OFF.array_payload, items_count * 8)
             if not ptrs_data or len(ptrs_data) < items_count * 8:
                 self._cached_bp_projectile = 0
+                self.last_status = f"could not read {items_count} item pointers"
                 return 0, ""
-        except Exception:
+        except Exception as exc:
             self._cached_bp_projectile = 0
+            self.last_status = f"item pointer read raised {exc!r}"
             return 0, ""
 
         # Find the item whose UID matches clActiveItem
         matched_item = 0
+        seen_uids = []
         for i in range(items_count):
             item_ptr = struct.unpack_from('<Q', ptrs_data, i * 8)[0]
             if not legacy._valid_user_ptr(item_ptr):
                 continue
             uid = self._safe_u64(item_ptr + OFF_ITEM_UID)
+            if len(seen_uids) < 12:
+                seen_uids.append(f"0x{uid:X}")
             if uid and (uid & 0xFFFFFFFFFFFFFFFF) == active_uid:
                 matched_item = item_ptr
                 break
 
         if not matched_item:
             self._cached_bp_projectile = 0
+            # active_uid vs what was actually read off each belt item at
+            # OFF_ITEM_UID. If this still fires after item_uid=0x80 (a
+            # second-source-confirmed value, see legacy_runtime.OFF.item_uid)
+            # the uid offset probably isn't the problem any more -- look at
+            # an earlier stage instead (decrypt_cl_active_item, the
+            # inventory chain, or the belt/wear/main triple).
+            self.last_status = (
+                f"no item matched active_uid=0x{active_uid:X} among "
+                f"{items_count} belt items (uid+0x{OFF_ITEM_UID:X} read as "
+                f"{seen_uids})"
+            )
             return 0, ""
 
         # Read the weapon shortname FIRST. It comes off the ItemDefinition and
@@ -282,12 +379,20 @@ class RecoilEngine:
         # pointer; the aimbot's ballistics need nothing but weapon_key. So a
         # null heldEntity now costs the recoil feature (which cannot work
         # without it) and nothing else, instead of blanking both.
-        held_entity = self._safe_u64(matched_item + OFF_ITEM_HELD_ENTITY)
-        if not legacy._valid_user_ptr(held_entity):
-            held_entity = 0
+        held_entity = self._probe_held_entity(matched_item)
 
         self._cached_bp_projectile = held_entity
         self._last_weapon_key = weapon_key
+        if held_entity:
+            held_desc = f"0x{held_entity:X} (via item+0x{self._held_entity_off:X})"
+        else:
+            held_desc = (
+                f"null -- neither candidate ({', '.join(hex(o) for o in self.HELD_ENTITY_CANDIDATES)}) "
+                f"validated (pointer + has RecoilProperties)"
+            )
+        self.last_status = (
+            f"ok weapon={weapon_key!r} uid=0x{active_uid:X} held_entity={held_desc}"
+        )
         return held_entity, weapon_key
 
     # ── Main tick ────────────────────────────────────────────────────────
@@ -301,16 +406,40 @@ class RecoilEngine:
         if not enabled and not self._needs_reset:
             return
 
+        # Every bail-out below used to be silent -- "no-recoil stopped
+        # working" with no way to tell which of five stages did it. Gated
+        # the same way aim_engine's own debug prints are, and throttled so
+        # it does not spam every tick while the weapon genuinely has none
+        # of what it needs (e.g. holstered).
+        dbg = getattr(vs, 'aim_debug_prints', False)
+        now = time.perf_counter()
+        cadence_ok = now >= self._next_tick_debug_at
+
+        def report(msg):
+            if dbg and cadence_ok:
+                self._next_tick_debug_at = now + 0.5
+                print(f"[NORECOIL-DBG] {msg}", flush=True)
+
         bp_proj, weapon_key = self._resolve_weapon(model)
         if not bp_proj or not weapon_key:
+            # _resolve_weapon's own last_status already says exactly which
+            # of ITS stages failed. If weapon_key is non-empty here,
+            # _probe_held_entity is what came back empty -- see that
+            # method's own docstring for how it picks a candidate.
+            report(f"no weapon/held_entity -- {self.last_status}")
             return
 
         recoil_data = RECOIL_TABLE.get(weapon_key)
         if not recoil_data:
+            report(f"weapon={weapon_key!r} has no RECOIL_TABLE entry")
             return
 
         recoil_props = self._safe_u64(bp_proj + OFF_RECOIL_PROPS)
         if not legacy._valid_user_ptr(recoil_props):
+            report(
+                f"weapon={weapon_key!r} recoilProperties invalid "
+                f"(held_entity+0x{OFF_RECOIL_PROPS:X})"
+            )
             return
 
         new_recoil = self._safe_u64(recoil_props + OFF_NEW_RECOIL_OVERRIDE)

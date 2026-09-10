@@ -982,14 +982,14 @@ class Mem:
 class OFF:
     # --- Klass RVAs (GameAssembly.dll) ---
     # 2026-09-08 fresh dump — updated after game update
-    BaseNetworkable_c           = 0x119B5410  # dump 2026-09-08
+    BaseNetworkable_c           = 0x118D4020  # game update 2026-09-10 (was 0x119B5410)
     BasePlayer_c                = 0x11999730  # STALE (2026-09-07) — not in new dump
-    MainCamera_c                = 0x119B0A40  # dump 2026-09-08
+    MainCamera_c                = 0x118B4098  # game update 2026-09-10 (was 0x119B0A40)
     LocalPlayer_c               = 0x1198FC28  # STALE (2026-09-07) — not in new dump
-    ListComponent_PlayerModel_c = 0x1196D5A8  # dump 2026-09-08
+    ListComponent_PlayerModel_c = 0x118D8CB0  # game update 2026-09-10 (was 0x1196D5A8)
     BaseViewModel_c             = 0x11944670  # dump 2026-09-08
     TOD_Sky_c                   = 0x119CC870  # dump 2026-09-08
-    BaseEntity_c                = 0x11981CC0  # STALE (2026-09-07) — not in new dump
+    BaseEntity_c                = 0x118F4970  # STALE (2026-09-07) — not in new dump
     BaseCombatEntity_c          = 0x119E4848  # STALE (2026-09-07) — not in new dump
     BaseProjectile_c            = 0x119E9418  # STALE (2026-09-07) — not in new dump
     GameManager_c               = 0x11866048  # STALE (2026-09-07) — not in new dump
@@ -1001,7 +1001,19 @@ class OFF:
     BuildingPrivlidge_c         = 0x1156FE20  # STALE (build 24840484)
     LootContainer_c             = 0x10889998  # STALE (build 24614784)
     IL2CppHandle_c              = 0x11A88F30  # STALE (2026-09-07) — not in new dump
-    ProjectileList_c            = 0x1195F430  # NeoRed SDK v6 (2026-09-09): projectile_list.projectile_klass_rva (was 0xFBDB350, stale)
+    # Game update 2026-09-10, resolved. The user found it directly in a
+    # fresh script.json TypeInfo listing: {"Address": 294759824, "Name":
+    # "ListComponent<Projectile>_TypeInfo", "Signature":
+    # "ListComponent_Projectile__c*"} -- 294759824 decimal = 0x1191AD90. The
+    # class NAME confirms the guess this project made when the generic
+    # ListComponent<PlayerModel> shape stopped resolving (see
+    # find_projectile_klass.py's docstring): this build's IL2CPP codegen
+    # literally names T-instantiations "ListComponent_<T>" in the class's
+    # raw .name field. Sits in the same 0x118x/0x119x klass-RVA neighborhood
+    # as BaseNetworkable_c/MainCamera_c/ListComponent_PlayerModel_c above,
+    # which this update also moved -- a real sanity check, not just a
+    # plausible-looking number.
+    ProjectileList_c            = 0x1191AD90  # game update 2026-09-10 (was 0x1195F430, unverified NeoRed SDK v6 value)
 
 
     # --- IL2CPP API RVAs ---
@@ -1099,23 +1111,23 @@ class OFF:
 
     # --- ListComponent<PlayerModel> (martin dumper) ---
     ListComponent_instance  = 0x8   # sf → singleton at sf+0x8
-    ListComponent_parent    = 0x10  # dump 2026-09-08: parent=0x10 (was 0x18)
-    ListComponent_buffer    = 0x10  # dump 2026-09-08: buffer=0x10
-    ListComponent_size      = 0x18  # BufferList.count at +0x18
+    ListComponent_parent    = 0x18  # game update 2026-09-10: parent=0x18 (was 0x10 on 2026-09-08 -- reverted, not a fresh guess: this build's export.h says the same 0x18 the 2026-09-05-and-earlier builds used)
+    ListComponent_buffer    = 0x10  # dump 2026-09-08: buffer=0x10 (unchanged 2026-09-10)
+    ListComponent_size      = 0x18  # BufferList.count at +0x18 (unchanged 2026-09-10)
 
-    # --- BasePlayer (dump 2026-09-08) ---
-    playerModel         = 0x7A0  # dump 2026-09-08 (was 0x5B8)
-    input               = 0x3E8  # dump 2026-09-08 (was 0x518)
-    eyes                = 0x348  # dump 2026-09-08 (was 0x7A0)
-    inventory           = 0x510  # dump 2026-09-08 (was 0x7A8)
-    _displayName        = 0x438  # dump 2026-09-08 (was 0x300)
+    # --- BasePlayer (game update 2026-09-10, offsets_decrypts_export.h) ---
+    playerModel         = 0x498  # game update 2026-09-10 (was 0x7A0)
+    input               = 0x630  # game update 2026-09-10 (was 0x3E8) -- header calls this playerInput
+    eyes                = 0x6F8  # game update 2026-09-10 (was 0x348) -- header calls this playerEyes
+    inventory           = 0x3B8  # game update 2026-09-10 (was 0x510) -- header calls this playerInventory
+    _displayName        = 0x2F8  # game update 2026-09-10 (was 0x438) -- header calls this username
     userID              = 0x720  # STALE (2026-09-07) — not in new dump
     userID_string       = 0x3C0  # STALE (2026-09-07) — not in new dump
-    playerFlags         = 0x6D8  # dump 2026-09-08 (unchanged)
-    cl_active_item      = 0x588  # dump 2026-09-08 (unchanged)
+    playerFlags         = 0x6D8  # dump 2026-09-08 (unchanged through 2026-09-10 update)
+    cl_active_item      = 0x588  # dump 2026-09-08 (unchanged through 2026-09-10 update)
     held_entity_cache   = 0x5E0  # STALE (2026-09-07) — not in new dump
     base_movement       = 0x540  # STALE (2026-09-07) — not in new dump
-    current_team        = 0x558  # dump 2026-09-08 (unchanged)
+    current_team        = 0x558  # confirmed by the user's own dump 2026-09-09 (unchanged through 2026-09-10 update)
     model_state         = 0x4B0  # STALE (2026-09-07) — not in new dump
     belt_shortcut       = 0x338  # STALE (2026-09-07) — not in new dump
 
@@ -1123,46 +1135,68 @@ class OFF:
     world_item_item     = 0x208  # WorldItem.item -> Item* (confirmed by rust-dumper SDK, 2026-08-21)
 
     # --- Item ---
-    # 2026-09-08: rust-dumper-post, injected live into the running game
-    # (PID 2904) and walking the REAL Item class via IL2CPP reflection --
-    # this is ground truth, not a disassembly guess. Full live field dump:
-    #   0x10 ItemContainer, 0x18 string, 0x20 ulong, 0x28 ItemContainer,
-    #   0x30 List<...>, 0x38 EntityRef-shaped nested struct, 0x40 int?,
-    #   0x48 ulong, 0x50 float, 0x58 int?, 0x60 bool, 0x64 uint, 0x68 float,
-    #   0x6C float, 0x70 string, 0x78 Action<Item>, 0x80/0xB8 (opaque,
-    #   same type both places -- NOT HeldEntity: the tool's own live
-    #   exact-class search for a HeldEntity-typed field on Item came back
-    #   empty), 0x90 int, 0x94 Item.Flag, 0x98 int, 0xA0 ItemDefinition,
-    #   0xA8/0xAC/0xB0 float, 0xC8 float, 0xCC bool, 0xD0 string, 0xD8 ItemId.
-    item_definition     = 0xA0   # live-confirmed 2026-09-08 (ItemDefinition-typed field)
-    # EntityRef inline struct (BaseEntity* at +0x0) is the field at 0x38, not
-    # 0x80 -- 0x80/0xB8 are a different, unidentified type per the live dump
-    # above (confirmed NOT HeldEntity). Reverted to the pre-header value; the
-    # header's 0x80 came from its own self-flagged-uncertain "test these"
-    # heldEntity candidate, which this live dump does not support.
-    # 2026-09-09: NeoRed SDK v6 (build 25184202 dump) identifies
-    # `item::held_entity = 0xB8` specifically as "EntityRef-cluster position
-    # (highest of N>=2)" -- Item has two fields of this same EntityRef-like
-    # type (0x80 and 0xB8), and the one that means "currently deployed" is
-    # the higher one, not 0x38. 0x38 is a DIFFERENT EntityRef field
-    # (Item.worldEnt, a more general world-entity backref) -- conflating the
-    # two was the actual bug: held-item detection AND the no-recoil weapon
-    # walk both read this exact constant, so both broke identically on the
-    # same wrong offset. Confirmed by the user still seeing held-items and
-    # no-recoil both fail after the entity-realm fix alone.
-    item_worldEnt       = 0xB8   # was 0x38 (wrong field: that's Item.worldEnt, not held_entity)
-    item_heldEntity     = 0x80   # alias (same as item_worldEnt) -- the actual call site (_read_held_items_batch)
-    item_held_entity_direct = 0xB8  # now the SAME field as item_heldEntity above; unused in this codebase
-    # ItemId (the uid struct BasePlayer.clActiveItem also wraps) is the field
-    # at 0xD8 in the live dump above, not 0x10 (that's the first of Item's
-    # two ItemContainer fields -- parent/contents, role undetermined).
-    item_uid            = 0xD8   # was 0x10 (unconfirmed header guess); live-confirmed 2026-09-08 (ItemId-typed field)
-    item_parent_container = 0x10 # UNCONFIRMED role -- live dump shows Item has ItemContainer fields at 0x10 AND 0x28; which is parent vs contents is undetermined. Unused in this codebase.
-    item_contents       = 0x28   # UNCONFIRMED role -- see item_parent_container comment. Unused in this codebase.
-    item_amount         = 0x98   # 2026-09-09: NeoRed SDK v6 TIER1 LIVE-PROBE (stackable-ceiling cross-check) -- was 0x90 (unconfirmed guess, that's actually item_position). Unused in this codebase.
+    # Game update 2026-09-10 reshuffled this class -- item_definition moved
+    # from a live-confirmed 0xA0 to 0x70, which alone proves every offset
+    # below it needs re-verification, not just a klass RVA change. Read
+    # directly out of the fresh dump.cs (TypeDefIndex 700), which prints real
+    # FIELD TYPES even where names are hash-obfuscated -- this is stronger
+    # evidence than offsets_decrypts_export.h's own "// test these" guesses,
+    # which don't carry type info and got item_definition/item_list wrong.
+    # New layout (instance fields only, statics omitted):
+    #   0x10 (opaque struct), 0x18 bool, 0x20 EntityRef-shaped struct (type
+    #   repeats at 0xC0), 0x30 Nullable<int>, 0x38 float [condition],
+    #   0x3C int, 0x40 Item.Flag, 0x48 ItemContainer [contents],
+    #   0x50 ulong, 0x58/0x5C float, 0x60 Action<Item>,
+    #   0x68 ItemContainer [parent], 0x70 ItemDefinition [info],
+    #   0x78 uint, 0x7C float, 0x80 (opaque, Pool-managed type),
+    #   0x88 string, 0x90/0x94/0x98 float, 0x9C bool, 0xA0 int,
+    #   0xA8 string, 0xB0 (opaque struct), 0xB8 ulong,
+    #   0xC0 EntityRef-shaped struct (same type as 0x20),
+    #   0xD0 List<...>, 0xD8 Nullable<int>, 0xE0 string.
+    item_definition     = 0x70   # game update 2026-09-10 (was 0xA0). ItemDefinition-typed field, unambiguous in dump.cs -- confirmed by BOTH dump.cs and the header.
+    # Item has exactly two ItemContainer-typed fields (0x48, 0x68), the same
+    # parent/contents pair the class had before the update, just moved.
+    # ItemContainer.parent (below) points BACK to this same field at Item's
+    # 0x68, i.e. Item.parent<->ItemContainer.parent is a matched pair -- a
+    # real structural cross-check, not a guess.
+    item_parent_container = 0x68 # was 0x10 pre-update. UNCONFIRMED role (parent vs contents) but cross-checked against ItemContainer.parent (0x20) pointing back to a same-typed field. Unused in this codebase.
+    item_contents       = 0x48   # was 0x28 pre-update. UNCONFIRMED role -- see item_parent_container. Unused in this codebase.
+    # item_uid: RESOLVED by a second, independent dumper source (2026-09-10,
+    # user-supplied `struct item { ... uid = 0x80; }`). That source's OTHER
+    # values are strong corroboration -- it hands back item_list=0x48,
+    # item.definition=0x70, and the wear=0x30/main=0x60/belt=0x78 triple bit
+    # for bit identical to what this file already had (the triple from live
+    # in-game correction, the other two from dump.cs field-typing), so its
+    # uid=0x80 is trusted over the earlier reasoned guess of 0xB8.
+    # The earlier guess had rejected 0x80 for looking like "an opaque
+    # Pool-managed type" rather than a plain ulong in dump.cs -- that was a
+    # misread, not a real conflict: Item.uid's real type is `ItemId`, a
+    # readonly struct WRAPPING a single ulong, not a bare ulong field, so
+    # dump.cs printing a struct-shaped type at 0x80 is exactly what a
+    # correctly-identified ItemId field should look like.
+    item_uid            = 0x80   # game update 2026-09-10, second-source confirmed (was 0xB8 reasoned guess, was 0xD8 pre-update)
+    # item_worldEnt/item_heldEntity/item_held_entity_direct remain
+    # unresolved. The same second source that settled item_uid gives
+    # `item.held_entity = 0x0` for this field -- clearly a placeholder, not
+    # a real class-relative offset (nothing in Item lives at 0x0), so it
+    # independently confirms this field is HARD to pin down rather than
+    # handing over a working number. Left at the pre-update values below
+    # even though those are almost certainly wrong too (the old EntityRef
+    # pair sat at 0x80/0xB8, both now claimed by other fields; dump.cs shows
+    # the EntityRef-shaped struct pair moved to 0x20/0xC0). Unlike item_uid,
+    # a wrong held-entity offset has NO clean self-check -- it just
+    # validates as "some pointer" and silently poisons whatever reads it
+    # next, which is exactly how this field broke two features at once
+    # before. NEEDS A LIVE PROBE (read both 0x20 and 0xC0 off a matched
+    # item, check which one's target class name matches a weapon/BaseEntity
+    # prefab) before either value is used.
+    item_worldEnt       = 0xB8   # STALE post-2026-09-10 update -- do not trust, see comment above
+    item_heldEntity     = 0x80   # STALE post-2026-09-10 update -- do not trust, see comment above (also now collides with the corrected item_uid value; unrelated fields, not a bug)
+    item_held_entity_direct = 0xB8  # STALE post-2026-09-10 update -- see item_heldEntity
+    item_amount         = 0xA0   # second-source value (2026-09-10). Unused in this codebase.
     item_condition      = 0x68   # STALE (2026-09-07) — not in new dump, unused in this codebase
     item_max_condition  = 0xC4   # STALE (2026-09-07) — not in new dump, unused in this codebase
-    item_position       = 0x90   # 2026-09-09: NeoRed SDK v6 TIER1 LIVE-PROBE (unique Int32 in [0, belt_size)) -- was 0x98 (that's actually item_amount). Unused in this codebase.
+    item_position       = 0x90   # STALE post-2026-09-10 update. Unused in this codebase.
     item_clientAmmoCount = 0xB8  # STALE (2026-09-07) — not in new dump, unused in this codebase, COLLIDES with item_held_entity_direct
 
     # --- ItemDefinition (cross-checked against dump.cs TypeDefIndex 8552,
@@ -1210,15 +1244,37 @@ class OFF:
     # explained by item_heldEntity (0x38 -> 0xB8, see above), not by this.
     # Do not rotate these three again without a live screenshot confirming
     # which slot actually holds >12 items.
-    container_wear      = 0x60   # reverted to the 2026-09-05 screenshot-verified value
-    container_belt      = 0x28   # reverted to the 2026-09-05 screenshot-verified value
-    container_main      = 0x78   # reverted to the 2026-09-05 screenshot-verified value (container2, shifted from 0x58 same patch)
-    # ItemContainer.list found live by rust-dumper-post (2026-09-08): a field
-    # on ItemContainer whose full type is literally "List<Item>" (matched by
-    # resolved type-class equality against the live Item klass pointer, not
-    # a name string) -- 0x78. Both the header's 0x38 and the previous 0x68
-    # were wrong for this build.
-    item_list           = 0x78   # was 0x38 (unconfirmed header guess), was 0x68 (2026-09-07); live-confirmed 2026-09-08
+    #
+    # Game update 2026-09-10: dump.cs's fresh field list for PlayerInventory
+    # shows the three ItemContainer-typed fields at 0x30/0x60/0x78 (previously
+    # 0x28/0x60/0x78). The FIRST attempt here assumed the same guess that
+    # burned this exact area before -- "position in declaration order maps
+    # to the same role across an update" -- and reassigned only 0x28->0x30
+    # to belt, leaving wear=0x60/main=0x78 as they were. That was WRONG: the
+    # user immediately saw wear-type items (clothes) rendered under the belt
+    # label in-game. Swapped 0x30<->0x60 below on that live signal, exactly
+    # the kind of confirmation this file's own history says to trust over
+    # any dump-based reasoning (see the "do not rotate... without a live
+    # screenshot" warning above -- this update's role assignment needed
+    # that live check after all, the dump's numeric shift was not enough by
+    # itself). main (0x78) is untouched -- not reported wrong.
+    # Two independent live reports, combined directly rather than re-guessed:
+    #   1st report: what was labelled "belt" (0x30) showed clothes -> 0x30 IS
+    #      wear. (Confirmed, never re-reported wrong after this.)
+    #   2nd report: after fixing that (belt=0x60, main=0x78), belt and main
+    #      came back inverted -> 0x60 is actually main, 0x78 is actually belt.
+    # Combining both: wear=0x30, main=0x60, belt=0x78. Do not re-derive this
+    # from the dump.cs field-order reasoning again -- that reasoning produced
+    # BOTH wrong guesses above; only the live reports settled it.
+    container_wear      = 0x30   # confirmed by live feedback 2026-09-10
+    container_belt      = 0x78   # confirmed by live feedback 2026-09-10 (2nd correction)
+    container_main      = 0x60   # confirmed by live feedback 2026-09-10 (2nd correction)
+    # ItemContainer.list: dump.cs (fresh TypeDefIndex 2783) shows exactly one
+    # `List<Item>`-typed field on ItemContainer, at 0x48 -- unambiguous by
+    # type, the same kind of positive ID rust-dumper-post used pre-update.
+    # Both the header's 0x40 guess (that offset is actually `int capacity`
+    # per dump.cs) and the pre-update 0x78 are wrong for this build.
+    item_list           = 0x48   # game update 2026-09-10 (was 0x78). List<Item>-typed field, unambiguous in dump.cs.
 
     # --- BaseEntity ---
     # 0x1B8 matches offsets_decrypts_export.h generated same-day from THIS
@@ -1417,17 +1473,19 @@ def _hv_decrypt(hv_value, ops):
 
 
 def decrypt_bn0(hv_value):
-    # rust-dumper-post, live-injected against the 2026-09-08 build (game PID
-    # 2904, resolved via actual IL2CPP reflection, not disassembly guessing):
-    # SUB/XOR/SUB chain. Root cause of the entire 2026-09-08 "no entityRealm"
-    # regression -- this was still the 2026-09-07 chain until this update.
-    return _hv_decrypt(hv_value, [('sub', 0x6DE25D20), ('xor', 0xBBE2C3AB), ('sub', 0x67BA773C)])
+    # Game update 2026-09-10. offsets_decrypts_export.h's own auto-generated
+    # client_entities()/entity_list() came out with EMPTY loop bodies this
+    # run (DecrypterGen failed to decode them post-update); the user supplied
+    # the real chain separately as base_networkable_0(), decoded from the
+    # same a1+0x18 read. Verified bit-exact against a literal transcription
+    # of that disassembly over 2000+ random 64-bit inputs. XOR/SUB/XOR chain.
+    return _hv_decrypt(hv_value, [('xor', 0xCC2B1C5C), ('sub', 0x196BCA9E), ('xor', 0x1A846030)])
 
 
 def decrypt_bn1(hv_value):
-    # rust-dumper-post, live-injected 2026-09-08 (see decrypt_bn0 above):
-    # ROL(8)/XOR/ADD chain.
-    return _hv_decrypt(hv_value, [('rol', 8), ('xor', 0x53AF7E8A), ('add', 0x46D2F09C)])
+    # Game update 2026-09-10 (see decrypt_bn0 above; this is
+    # base_networkable_1(), the other broken auto-export). XOR/ROL(8)/XOR/ADD.
+    return _hv_decrypt(hv_value, [('xor', 0x2573BC7C), ('rol', 8), ('xor', 0xB2F825D8), ('add', 0x617F688B)])
 
 
 def decrypt_local_player(hv_value):
@@ -1436,27 +1494,26 @@ def decrypt_local_player(hv_value):
 
 
 def decrypt_player_inventory(hv_value):
-    # 2026-09-09: swapped in from unknowncheats.me (Ghidra-derived, RVA
-    # 0x6310F30) at the user's explicit direction, replacing the previous
-    # XOR/ADD/ROL(19)/SUB chain (NeoRed SDK v6, claimed "tested and
-    # working" but empirically produced zero resolvable handles live --
-    # see [HELD-DBG] ... inv=0 with wrap=18). This one is ROR(19)/ADD/ROL(7):
-    #   d = (d >> 19) | (d << 13)   -- ROR(19) == ROL(32-19) == ROL(13)
-    #   d += 0x7ED1C97D
-    #   d = (d << 7) | (d >> 25)    -- ROL(7)
-    # Its own poster flagged it as Ghidra-derived but not live-tested --
-    # confirm with a fresh [HELD-DBG] run (inv>0) before trusting it further.
-    return _hv_decrypt(hv_value, [('rol', 13), ('add', 0x7ED1C97D), ('rol', 7)])
+    # Game update 2026-09-10: offsets_decrypts_export.h's player_inventory_decrypt,
+    # auto-generated (unlike the previous chain, which its own poster flagged
+    # as Ghidra-derived and untested -- this run's export has a real, non-empty
+    # loop body). ROL(19)/ADD/XOR. Verified bit-exact against a literal
+    # transcription of the exported disassembly over 2000+ random inputs.
+    return _hv_decrypt(hv_value, [('rol', 19), ('add', 0x2E7609BD), ('xor', 0x2C9CD73D)])
 
 
 def decrypt_player_eyes(hv_value):
-    # Dump 2026-09-08 (player_eyes): ROL/ADD/ROL/ADD
-    return _hv_decrypt(hv_value, [('rol', 28), ('add', 0xE9D7831A), ('rol', 26), ('add', 0x3164498F)])
+    # Game update 2026-09-10 (offsets_decrypts_export.h, player_eyes_decrypt).
+    # ROL(13)/ADD/ROL(31)/SUB -- replaces the 2026-09-08 ROL/ADD/ROL/ADD chain.
+    return _hv_decrypt(hv_value, [('rol', 13), ('add', 0x7CD29FA9), ('rol', 31), ('sub', 0x6A7D41C2)])
 
 
 def decrypt_cl_active_item(value):
-    # Dump 2026-09-08 (clActiveItem): ROL/XOR/ROL
-    return _hv_decrypt(value, [('rol', 28), ('xor', 0x06B1763D), ('rol', 4)])
+    # Game update 2026-09-10 (offsets_decrypts_export.h, cl_active_item).
+    # ROL(9)/XOR/ROL(10)/SUB -- replaces the 2026-09-08 ROL/XOR/ROL chain
+    # (gained a trailing SUB). Note this decrypts the raw handle VALUE
+    # directly (no memory read), matching this function's existing signature.
+    return _hv_decrypt(value, [('rol', 9), ('xor', 0xBC12F754), ('rol', 10), ('sub', 0x2D51B831)])
 
 
 def _read_hv_handle(m, wrapper, attempts=3):
@@ -2946,6 +3003,9 @@ class RustGame:
         self._bp_deep_scan_interval = 8.0
         self._pm_pos_offset_cache = {}
         self._pm_raw_pos_cache = {}
+        # pm -> why its position was rejected, for [PM-DROP].
+        self._pos_reject_why = {}
+        self._pm_drop_logged = {}
         self._pm_smooth_pos_cache = {}
         # Teleport gate state, see POS_JUMP_* above.
         self._pm_pos_time_cache = {}   # pm -> perf_counter of last accepted pos
@@ -5572,11 +5632,32 @@ class RustGame:
                 if abs(vx) < 50.0 and abs(vy) < 50.0 and abs(vz) < 50.0:
                     self._pm_vel_cache[pm] = (vx, vy, vz)
 
-                if (not (p[0] == 0.0 and p[1] == 0.0 and p[2] == 0.0)
-                        and abs(p[0]) < 6000 and abs(p[2]) < 6000
-                        and -200 < p[1] < 2000
-                        and not (abs(p[0]) < 2.0 and abs(p[2]) < 2.0 and abs(p[1]) < 2.0)):
+                # A player who fails every clause here is dropped from the
+                # ESP ENTIRELY further down (skipped_pos -> continue), not
+                # merely drawn without a position -- which is the "some
+                # players are invisible" report. So record which clause
+                # rejected them instead of leaving it a silent drop.
+                if p[0] == 0.0 and p[1] == 0.0 and p[2] == 0.0:
+                    why = "read returned zeros"
+                elif not (abs(p[0]) < 6000 and abs(p[2]) < 6000):
+                    why = f"x/z out of map bounds ({p[0]:.0f},{p[2]:.0f})"
+                elif not (-200 < p[1] < 2000):
+                    why = f"y out of range ({p[1]:.0f})"
+                elif abs(p[0]) < 2.0 and abs(p[2]) < 2.0 and abs(p[1]) < 2.0:
+                    # NB the map is centred on the origin, so this 2 m cube is
+                    # a real place to stand -- kept as-is for now, but it is a
+                    # genuine false-positive source worth knowing about.
+                    why = f"inside the 2m origin guard ({p[0]:.1f},{p[1]:.1f},{p[2]:.1f})"
+                else:
+                    why = None
+                why_map = getattr(self, '_pos_reject_why', None)
+                if why_map is None:
+                    why_map = self._pos_reject_why = {}
+                if why is None:
                     candidates.append((off, p))
+                    why_map.pop(pm, None)
+                else:
+                    why_map[pm] = why
             selected = self._select_pm_position(pm, candidates)
             if selected is not None:
                 out[pm] = selected
@@ -6315,17 +6396,27 @@ class RustGame:
             by_pm.setdefault(pm, {})[field] = value
 
         def decode_position(lo, hi):
+            """Returns (pos, why) -- why is None on success.
+
+            This is the REAL, live position-decode path (unlike the
+            same-shaped checks in _read_pm_server_positions_batch, which is
+            dead code -- never called -- so wiring the [PM-DROP] reject
+            reason into that one instead of here made every drop report
+            the same "no candidate produced" default regardless of the
+            real cause. Fixed by moving the reasoning here, where reads
+            actually happen.
+            """
             raw = struct.pack('<QQ', lo, hi)
             pos = struct.unpack_from('<fff', raw)
-            if (
-                all(math.isfinite(component) for component in pos)
-                and abs(pos[0]) < 6000
-                and abs(pos[2]) < 6000
-                and -200 < pos[1] < 2000
-                and pos != (0.0, 0.0, 0.0)
-            ):
-                return pos
-            return None
+            if not all(math.isfinite(c) for c in pos):
+                return None, "non-finite read (garbage or failed read)"
+            if pos == (0.0, 0.0, 0.0):
+                return None, "read returned zeros"
+            if not (abs(pos[0]) < 6000 and abs(pos[2]) < 6000):
+                return None, f"x/z out of map bounds ({pos[0]:.0f},{pos[2]:.0f})"
+            if not (-200 < pos[1] < 2000):
+                return None, f"y out of range ({pos[1]:.0f})"
+            return pos, None
 
         active_set = set(pm_ptrs)
         pm_to_bp = {}
@@ -6363,7 +6454,7 @@ class RustGame:
                     player_flags & PLAYER_FLAG_SLEEPING
                 )
 
-            transform_pos = decode_position(
+            transform_pos, _ = decode_position(
                 fields.get('transform_lo', 0),
                 fields.get('transform_hi', 0),
             )
@@ -6371,17 +6462,30 @@ class RustGame:
                 transform_positions[pm] = transform_pos
 
             candidates = []
+            reject_why = None
             for off, prefix in ((OFF.position_pm, 'server_0'),):
-                pos = decode_position(
+                pos, why = decode_position(
                     fields.get(prefix + '_lo', 0),
                     fields.get(prefix + '_hi', 0),
                 )
-                if pos is not None and not (
-                    abs(pos[0]) < 2.0
-                    and abs(pos[1]) < 2.0
-                    and abs(pos[2]) < 2.0
-                ):
-                    candidates.append((off, pos))
+                if pos is None:
+                    reject_why = why
+                    continue
+                if abs(pos[0]) < 2.0 and abs(pos[1]) < 2.0 and abs(pos[2]) < 2.0:
+                    # The map is centred on the origin, so this 2 m cube is a
+                    # real place to stand -- kept as a reject for now (see
+                    # OFF.position_pm's history), but flagged as such rather
+                    # than silently folded into "no candidate produced".
+                    reject_why = f"inside the 2m origin guard {pos}"
+                    continue
+                candidates.append((off, pos))
+            why_map = getattr(self, '_pos_reject_why', None)
+            if why_map is None:
+                why_map = self._pos_reject_why = {}
+            if candidates:
+                why_map.pop(pm, None)
+            elif reject_why is not None:
+                why_map[pm] = reject_why
             selected = self._select_pm_position(pm, candidates)
             if selected is not None:
                 server_positions[pm] = selected
@@ -6825,6 +6929,39 @@ class RustGame:
                     flush=True,
                 )
 
+    def _log_pm_drop(self, pm, gate, detail, pm_to_bp):
+        """Name a PlayerModel that was dropped from the player list entirely.
+
+        These two gates do not degrade a player -- they remove them, so the
+        overlay shows no box, no name and no skeleton for someone the game is
+        still drawing on screen. That is the "players not affected by the ESP"
+        report, and it was silent: skipped_pos only ever surfaced as an
+        aggregate `skip=N`, and skipped_hp was counted and never printed at
+        all. Throttled per pm so a persistently unreadable player does not
+        flood the console.
+        """
+        now = time.perf_counter()
+        # getattr, not self._x: the tests build this object with
+        # object.__new__ so __init__ never runs, and a diagnostic that
+        # crashes the tick it was added to diagnose is worse than no
+        # diagnostic at all.
+        seen = getattr(self, '_pm_drop_logged', None)
+        if seen is None:
+            seen = self._pm_drop_logged = {}
+        if now < seen.get(pm, 0.0):
+            return
+        seen[pm] = now + 5.0
+        for q in list(seen):
+            if seen[q] < now - 60.0:
+                del seen[q]
+        bp = pm_to_bp.get(pm, 0) if pm_to_bp else 0
+        print(
+            f"[PM-DROP] pm=0x{pm:X} dropped by {gate}: {detail} | "
+            f"bp={'0x%X' % bp if bp else 'UNRESOLVED'} "
+            f"cached_pos={'y' if pm in getattr(self, '_pm_pos_cache', {}) else 'n'}",
+            flush=True,
+        )
+
     def _get_lc_buffer(self):
         """Return a live or recently cached ListComponent buffer/count pair."""
         m, ga = self.m, self.ga
@@ -7186,6 +7323,12 @@ class RustGame:
                 pos = pm_pos_cache.get(pm)
                 if pos is None:
                     skipped_pos += 1
+                    self._log_pm_drop(
+                        pm, "no position",
+                        getattr(self, '_pos_reject_why', {}).get(
+                            pm, "no candidate produced"),
+                        pm_to_bp,
+                    )
                     continue
                 pathC_hits += 1
 
@@ -7205,8 +7348,16 @@ class RustGame:
             vital = health_by_pm.get(pm)
             if vital is not None:
                 ls, hp, max_hp = vital
-                if ls > 1 or max_hp < 1.0:
+                # max_hp < 1.0 is dead code: the producer only records an
+                # entry when 1.0 <= max_health <= 10000, so this reduces to
+                # the lifestate test. Kept explicit so the real condition is
+                # readable -- a player is removed from the ESP ENTIRELY here,
+                # which is a heavy price for one attribute reading oddly.
+                if ls > 1:
                     skipped_hp += 1
+                    self._log_pm_drop(
+                        pm, "bad lifestate", f"lifestate={ls}", pm_to_bp,
+                    )
                     continue
 
             new_players.append({
@@ -7533,7 +7684,8 @@ class RustGame:
 
         self._debug_players(
             f"LC={lc_count} pm={len(pm_ptrs)} {_vpl_diag} "
-            f"posA={pathA_hits} posB={pathB_hits} posC={pathC_hits} skip={skipped_pos} "
+            f"posA={pathA_hits} posB={pathB_hits} posC={pathC_hits} "
+            f"drop[pos={skipped_pos} hp={skipped_hp}] "
             f"cache={len(pm_pos_cache)} disp={len(display_players)}"
             # Same reason the LC-count line above dropped its vp=: the tick
             # never holds the matrix (the render loop owns it), so this could

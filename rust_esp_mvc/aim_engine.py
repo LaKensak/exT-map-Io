@@ -28,12 +28,30 @@ Write:  PI + 0x44 (8 bytes: new_pitch, new_yaw)
         PE + 0x60 (8 bytes: headAngles pitch, yaw)  [dual-write mode]
 """
 
+import ctypes
 import math
 import random
 import struct
 import time
 
 from . import legacy_runtime as legacy
+
+
+# Same GetAsyncKeyState path controller.py uses for the aim key, so a bind
+# configured here behaves identically to the one that already works.
+_USER32 = ctypes.windll.user32
+_USER32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+_USER32.GetAsyncKeyState.restype = ctypes.c_short
+
+
+def _key_down(vk):
+    """True while virtual-key `vk` is held. 0 or a bad bind reads as False."""
+    if not vk:
+        return False
+    try:
+        return bool(_USER32.GetAsyncKeyState(int(vk)) & 0x8000)
+    except Exception:
+        return False
 
 OFF = legacy.OFF
 
@@ -145,9 +163,13 @@ def _angular_distance(cur_pitch, cur_yaw, tgt_pitch, tgt_yaw):
 # get_gravity_Injected), not a managed static field -- there is no offset to
 # read it from. 9.81 is Unity's default and Rust is not known to override it.
 #
-# It scales the whole drop linearly, so if arrows land consistently short or
-# long by a proportional amount at every range, this is the single knob --
-# adjust it in the aim settings (vs.aim_gravity), not the per-weapon table.
+# No longer a user-facing setting (removed 2026-09-10 along with the
+# open-loop drop solve it fed): ProjectileHoming's continuous, closed-loop
+# correction re-aims every tick against the target's ACTUAL live position,
+# which self-corrects for a slightly-wrong gravity constant in a way a
+# one-shot solve never could. If arrows land consistently off by a
+# proportional amount at every range with homing ON, this constant is still
+# the thing to change -- just by editing it here, not via a slider.
 GRAVITY_MPS2 = 9.81
 
 PROJECTILE_TABLE = {
@@ -157,6 +179,7 @@ PROJECTILE_TABLE = {
     "bow_compound":   (45.0, 0.0, 1.0),
     "crossbow":       (60.0, 0.0, 1.0),
     "pistol_nailgun": (90.0, 0.0, 1.0),
+    "rifle_ak" : (300, 0.15, 1.0),
 }
 
 
@@ -354,198 +377,26 @@ def _solve_launch_pitch(x, y, speed, gravity, drag):
     return 0.5 * (lo + hi)
 
 
-class VelocitySmoother:
-    """Coherence-gated velocity estimate for projectile lead.
-
-    A plain EMA cannot serve both cases, and picking one tau breaks the other:
-
-      * The raw per-tick velocity is noisy -- over half a second of a walking
-        target it swung between 1.3 and 3.2 m/s and reversed direction. Times
-        a bow's ~0.75 s flight that is +/-1.7 m of lead at 30 m, about 3
-        degrees of yaw shaking at tick rate.
-      * But a heavy tau (0.6 s, which is what that shake forced) lags a
-        genuine sprint just as hard: the estimate needs ~0.6 s to reach 63%
-        of the real speed, so a player running in a straight line is led
-        SHORT for the whole run. That is precisely the preshot case.
-
-    So instead of one time constant, keep a fast EMA and measure how
-    self-consistent the motion is:
-
-        coherence = |EMA(v)| / EMA(|v|)      in [0, 1]
-
-    Averaging vectors cancels; averaging magnitudes does not. Running in a
-    straight line drives coherence to 1 (full lead, immediately -- the fast
-    tau no longer has to be slow). Thrashing back and forth drives it to 0,
-    and the lead collapses toward the body instead of chasing noise.
-
-    Scaling the lead by coherence is also the honest answer to a turning
-    target: we do not know where they will go, so we do not pretend to.
-    """
-
-    # Window over which "is this target holding a heading?" is judged. Swept
-    # against simulated targets at 60 m: straight-line accuracy is flat at
-    # 0.19 m across the whole range, so this only trades juke tolerance
-    # against how fast a target that STARTS running gets led --
-    #   0.20 -> 0.39 s to 80% lead, 1.59 m median miss on a 0.4 s juke
-    #   0.30 -> 0.52 s,              1.39 m
-    #   0.60 -> 0.96 s,              1.25 m
-    # A target already running is at coherence 1.0 and gets the full lead
-    # immediately either way; this is only the cold-start delay.
-    COHERENCE_TAU = 0.30
-    ADAPT_GAIN = 5.0       # the slow estimator averages over tau*(1+GAIN)
-    DISAGREE_REL = 0.35    # fast-vs-slow gap, relative to speed, that fully
-                           # hands over to the fast estimator
-
-    def __init__(self, tau=0.15):
-        self.tau = tau
-        self._vel = None       # slow EMA of the velocity VECTOR
-        self._fast = None      # fast EMA of the same
-        self._speed = 0.0      # EMA of the speed MAGNITUDE
-        self._dir = (0.0, 0.0, 0.0)   # EMA of the unit direction
-        self._key = None
-        self._at = 0.0
-        self.coherence = 1.0   # exposed for the debug line
-
-    def _reset(self, key, vel, now):
-        self._vel = tuple(vel)
-        self._fast = tuple(vel)
-        mag = math.sqrt(sum(c * c for c in vel))
-        self._speed = mag
-        self._dir = tuple(c / mag for c in vel) if mag > 1e-6 else (0.0, 0.0, 0.0)
-        self._key, self._at = key, now
-        self.coherence = 1.0
-        return self._vel
-
-    def update(self, key, vel, now, tau=None):
-        if tau is not None:
-            self.tau = tau
-        if vel is None:
-            self._vel = self._fast = None
-            self._speed, self._key, self._at = 0.0, key, now
-            self._dir = (0.0, 0.0, 0.0)
-            self.coherence = 1.0
-            return None
-        dt = now - self._at if self._at else 0.0
-        self._at = now
-        # New target, or a gap long enough that the old estimate is stale --
-        # snap rather than dragging the previous target's motion into this one.
-        if self._vel is None or key != self._key or dt <= 0.0 or dt > 0.5:
-            return self._reset(key, vel, now)
-
-        # Two estimators rather than one adaptive window. Making tau itself
-        # follow the coherence feeds back on itself -- coherence rises, the
-        # window lengthens, convergence slows, so a standstill-to-sprint took
-        # over a second to reach even 65% of the real speed. Instead run both
-        # and let them arbitrate:
-        #   fast: responds immediately, carries the measurement noise
-        #   slow: cancels the noise, lags a change of motion
-        # Averaging a CONSTANT velocity for longer costs nothing but noise
-        # reduction, so while the two agree the slow one is strictly better.
-        # The moment they disagree the motion has changed and only the fast
-        # one is telling the truth.
-        af = 1.0 if self.tau <= 1e-3 else 1.0 - math.exp(-dt / self.tau)
-        self._fast = tuple(p + af * (c - p) for p, c in zip(self._fast, vel))
-
-        tau_slow = self.tau * (1.0 + self.ADAPT_GAIN)
-        asl = 1.0 - math.exp(-dt / tau_slow)
-        self._vel = tuple(p + asl * (c - p) for p, c in zip(self._vel, vel))
-
-        ac = 1.0 - math.exp(-dt / self.COHERENCE_TAU)
-        raw_speed = math.sqrt(sum(c * c for c in vel))
-        self._speed += ac * (raw_speed - self._speed)
-
-        # Coherence is measured on the UNIT direction, not on the velocity.
-        # Averaging unit vectors isolates "is this target holding a heading?"
-        # from "how fast is it going", so a target accelerating from a
-        # standstill scores high immediately (its heading never wavered) while
-        # a strafer scores low however fast it moves. Deriving it from the
-        # velocity instead let the magnitude do the talking: mid-juke the fast
-        # estimator would spike, coherence with it, and the gate opened at
-        # exactly the moment it was needed.
-        if raw_speed > 1e-6:
-            unit = tuple(c / raw_speed for c in vel)
-            self._dir = tuple(p + ac * (u - p) for p, u in zip(self._dir, unit))
-
-        disagree = math.sqrt(
-            sum((f - s) ** 2 for f, s in zip(self._fast, self._vel))
-        )
-        # Scaled by the target's own speed: 1 m/s of disagreement means
-        # something very different at walking pace than at a sprint.
-        rel = disagree / max(self._speed, 1.0)
-        w = max(0.0, min(1.0, 1.0 - rel / self.DISAGREE_REL))
-        est = tuple(w * s + (1.0 - w) * f
-                    for s, f in zip(self._vel, self._fast))
-
-        if self._speed < 0.35:
-            # Standing still: the direction of a 0.2 m/s wobble is meaningless,
-            # and there is nothing to lead anyway.
-            self.coherence = 0.0
-        else:
-            self.coherence = min(1.0, math.sqrt(sum(c * c for c in self._dir)))
-        return tuple(c * self.coherence for c in est)
-
-
-def _projectile_aim_point(eye_origin, target_pos, target_vel, speed,
-                          gravity_scale, drag=0.0, base_gravity=None):
-    """World-space point to aim at so the projectile hits a moving target.
-
-    Solves lead and elevation together: each pass predicts where the target
-    will be after the current flight-time estimate, re-solves the launch
-    angle for that predicted point, and the new angle gives a new flight
-    time. Three passes because the angle feeds back into flight time (a
-    steeper shot spends longer in the air), which the old single-shot drop
-    estimate ignored entirely.
-
-    The returned point is the led horizontal position lifted to the height
-    that _target_angles will read back as exactly the solved pitch, so the
-    rest of the aim pipeline needs no special casing.
-    """
-    vx, vy, vz = target_vel if target_vel is not None else (0.0, 0.0, 0.0)
-    gravity = (GRAVITY_MPS2 if base_gravity is None else base_gravity) * gravity_scale
-    lead_pos = target_pos
-    pitch = None
-
-    for _ in range(3):
-        dx = lead_pos[0] - eye_origin[0]
-        dz = lead_pos[2] - eye_origin[2]
-        x = math.sqrt(dx * dx + dz * dz)
-        y = lead_pos[1] - eye_origin[1]
-
-        pitch = _solve_launch_pitch(x, y, speed, gravity, drag)
-        if pitch is None:
-            return target_pos             # out of range: aim straight at it
-        t = _flight_time_at_range(x, speed, pitch, drag)
-        if t is None:
-            return target_pos
-        lead_pos = (
-            target_pos[0] + vx * t,
-            target_pos[1] + vy * t,
-            target_pos[2] + vz * t,
-        )
-
-    dx = lead_pos[0] - eye_origin[0]
-    dz = lead_pos[2] - eye_origin[2]
-    x = math.sqrt(dx * dx + dz * dz)
-    return (lead_pos[0], eye_origin[1] + x * math.tan(pitch), lead_pos[2])
-
-
 class ProjectileBallistics:
     """Learns a weapon's real ballistics from its projectiles in flight.
 
-    Chain -- the same shape as the live-proven ListComponent<PlayerModel>
-    walk in legacy_runtime ([DBG] LC count=N), which is why it is mirrored
-    rather than re-derived:
-      ga + OFF.ProjectileList_c            -> ListComponent<Projectile> klass
-        + OFF.klass_static_fields (0xB8)   -> static fields
-        + OFF.ListComponent_instance (0x8) -> wrapper
-        + OFF.ListComponent_parent  (0x10) -> the list
-        + OFF.ListComponent_buffer/_size   -> Projectile*[] and its count
+    Chain -- last two hops are the live-proven ListComponent<PlayerModel>
+    shape from legacy_runtime ([DBG] LC count=N); the first hop is
+    Projectile's OWN instance offset (PROJECTILE_INSTANCE_OFF, confirmed by
+    the user from a live cheat's decompiled chain 2026-09-10 -- see that
+    constant's comment for why it legitimately differs from PlayerModel's):
+      ga + OFF.ProjectileList_c              -> ListComponent<Projectile> klass
+        + OFF.klass_static_fields (0xB8)     -> static fields
+        + PROJECTILE_INSTANCE_OFF (0x20)     -> wrapper
+        + OFF.ListComponent_parent (0x18)    -> the list
+        + OFF.ListComponent_buffer/_size     -> Projectile*[] and its count
       Projectile + OFF.proj_initial_velocity -> Vector3 + drag + gravityModifier
       (read as one 20-byte block: the three fields are packed with no holes)
 
-    Reading the list straight out of the static field (a guessed +0x28) is
-    what made every scan report "ListHashSet instance invalid"; the static
-    field holds a wrapper, so it is two hops, not one.
+    Reading the list straight out of the static field (a guessed +0x28, the
+    ORIGINAL wrong value, distinct from the now-confirmed +0x20) is what
+    made every scan report "ListHashSet instance invalid"; the static field
+    holds a wrapper, so it is two hops, not one.
 
     Attribution is "whatever weapon is held right now" -- you observe an
     arrow while holding the bow that fired it. Swapping weapons mid-flight
@@ -603,13 +454,24 @@ class ProjectileBallistics:
             return None
         return vals, count
 
+    # ListComponent<Projectile>'s own instance-wrapper offset, confirmed by
+    # the user from a live cheat's decompiled chain (2026-09-10):
+    #   static_fields + 0x20 -> wrapper -> +0x18 (parent) -> +0x10 (buffer)
+    # The last two hops are bit-identical to ListComponent_instance's
+    # PlayerModel shape (parent=0x18, buffer=0x10); only the FIRST hop
+    # differs (0x20 here vs 0x8 for PlayerModel) -- confirmation that
+    # different ListComponent<T> instantiations really do lay out their
+    # statics differently by T, which the original dead 0x28 guess had the
+    # right idea about, just the wrong number.
+    PROJECTILE_INSTANCE_OFF = 0x20
+
     def _find_list(self, sf):
         """Locate the projectile list, remembering which offsets worked.
 
-        Tries the proven PlayerModel shape first. If the generic
-        instantiation happens to lay its statics out differently, fall back to
-        scanning the first few static slots -- the same scan-and-validate the
-        entity-container probe uses, rather than hardcoding another guess.
+        Tries the confirmed Projectile shape first, then the PlayerModel
+        shape (harmless if wrong -- same validated probe as everywhere
+        else), then falls back to scanning the first few static slots for
+        any build where neither holds.
         """
         if self._instance_off is not None:
             got = self._list_at(sf, self._instance_off, self._via_parent)
@@ -617,9 +479,12 @@ class ProjectileBallistics:
                 return got
             self._instance_off = None      # layout moved; re-probe
 
-        # The known-good pair first, so a coincidentally-valid-looking slot
-        # earlier in the statics cannot win over the shape we already trust.
-        candidates = [(OFF.ListComponent_instance, True)]
+        # The known-good pairs first, so a coincidentally-valid-looking slot
+        # earlier in the statics cannot win over a shape we already trust.
+        candidates = [
+            (self.PROJECTILE_INSTANCE_OFF, True),
+            (OFF.ListComponent_instance, True),
+        ]
         candidates += [(o, True) for o in range(0x0, 0x48, 8)]
         candidates += [(o, False) for o in range(0x0, 0x48, 8)]
         for off, via_parent in candidates:
@@ -888,11 +753,12 @@ class ProjectileBallistics:
 class TeamFilter:
     """Keeps teammates out of the target list, by BasePlayer.currentTeam.
 
-    Two dumps disagree on where that field is -- legacy_runtime.OFF says
-    0x558, tools/rust_esp_mvc/dump.txt says 0x550 -- and on this project
-    picking one from a dump and hoping has burned a session before. So both
-    are read, a plausibility rule decides, and the debug line prints what it
-    saw so it can be confirmed against a real teammate in-game.
+    CONFIRMED 0x558 (user's own dump, 2026-09-09:
+    `inline constexpr std::uintptr_t team = 0x558;`). Do not re-derive it.
+    tools/rust_esp_mvc/dump.txt says 0x550 and is wrong for this build; it
+    is kept only as a fallback if 0x558 ever reads back pointer-shaped, and
+    [AIM-TEAM] prints both raw values so a mismatch is visible immediately
+    rather than silently disabling the filter.
 
     Plausibility: a Rust team id is 0 (no team) or a generated ulong. What it
     is NOT is a pointer, and a pointer is exactly what a wrong offset yields
@@ -916,9 +782,22 @@ class TeamFilter:
         self._next_at = 0.0
         self.last_status = "not read yet"
 
-    @staticmethod
-    def _plausible(v):
-        return v == 0 or not legacy._valid_user_ptr(v)
+    # This is a guard against pointer-shaped garbage, NOT a claim about how
+    # large a team id can be -- I could not find that documented, so it is
+    # deliberately generous. A wrong offset lands on a neighbouring
+    # reference field, and heap pointers in this process sit up around
+    # 0x24A0_0000_0000 (~2.5e12, straight out of the live logs); 2^40 is
+    # ~1.1e12, comfortably below that and far above any plausible id.
+    #
+    # Note "not a valid pointer" would be the WRONG test and was the first
+    # attempt: a team id is a plain integer that passes a pointer range
+    # check perfectly well. Magnitude is the only usable tell here, and the
+    # real confirmation is the raw values printed in [AIM-TEAM].
+    MAX_TEAM_ID = 1 << 40
+
+    @classmethod
+    def _plausible(cls, v):
+        return v == 0 or 0 < v < cls.MAX_TEAM_ID
 
     def refresh(self, model, local_bp, pms, now):
         if self.mem is None or not legacy._valid_user_ptr(local_bp):
@@ -959,9 +838,15 @@ class TeamFilter:
             }
             mates = sum(1 for v in self._teams.values()
                         if v and v == local_team)
+            # Both candidates are printed, not just the winner: the two
+            # dumps disagree and only a real teammate in-game settles it.
+            seen = " ".join(
+                f"[0x{o:X}]={self.mem.u64(local_bp + o)}"
+                for o in self.CANDIDATES
+            )
             self.last_status = (
-                f"off=0x{self._off:X} my_team={local_team} "
-                f"known={len(self._teams)} teammates={mates}"
+                f"using 0x{self._off:X} my_team={local_team} "
+                f"known={len(self._teams)} teammates={mates} | raw {seen}"
             )
         except Exception as exc:
             self.last_status = f"exception {exc!r}"
@@ -1147,10 +1032,14 @@ class AimEngine:
         # Learns real arrow/bolt/nail physics off live projectiles; falls
         # back to PROJECTILE_TABLE until the first shot with a given weapon.
         self._ballistics = ProjectileBallistics(memory)
-        # Raw per-tick target velocity is too noisy to multiply by a bow's
-        # flight time -- see VelocitySmoother.
-        self._lead_vel = VelocitySmoother()
+        # No open-loop drop/lead aim-point adjustment any more --
+        # ProjectileHoming corrects the arrow onto the target continuously,
+        # off its own live position, once it is in flight instead. That
+        # made the upfront solve (and the jitter it needed VelocitySmoother
+        # to fight) both redundant and no longer worth its own complexity.
         self._homing = ProjectileHoming(memory, self._ballistics)
+        self._teams = TeamFilter(memory)
+        self._team_said = ""
         # Cached pointers
         self._pi_addr = 0           # PlayerInput*
         self._pi_bp = 0             # the BasePlayer* it was resolved from
@@ -1477,9 +1366,13 @@ class AimEngine:
                 sticky_candidate = p
                 sticky_head = head
 
-            # Penalty is proportional to range, so it only ever decides
-            # between candidates that are already both in the cone.
-            score = ang_dist * (1.0 + dist_bias * dist / 100.0)
+            # Additive, in degrees: `dist_bias` degrees of penalty per 25 m
+            # of range. Multiplying instead made the penalty proportional to
+            # the angle, so the far target -- which is far BECAUSE it sits
+            # near the crosshair -- barely paid it: at bias 0.5 a player at
+            # 200 m and 1 deg still beat one at 20 m and 3 deg, i.e. exactly
+            # the case this exists to fix.
+            score = ang_dist + dist_bias * dist / 25.0
             if score < best_score:
                 best_score = score
                 best = p
@@ -1647,6 +1540,9 @@ class AimEngine:
                 [p.get("pm", 0) for p in players], now,
             )
             teammate_fn = self._teams.is_teammate
+            if dbg and cadence_ok and self._teams.last_status != self._team_said:
+                self._team_said = self._teams.last_status
+                print(f"[AIM-TEAM] {self._teams.last_status}", flush=True)
         else:
             teammate_fn = None
 
@@ -1734,17 +1630,23 @@ class AimEngine:
         if vs.aim_humanize and now < self._reaction_deadline:
             return False  # still "reacting" — don't aim yet
 
-        # Projectile drop + lead — bow/crossbow/nailgun only. Everything
-        # else in Rust is effectively hitscan at ESP-relevant ranges, so
-        # skip the extra work (and any chance of it being wrong) for them.
+        # Weapon identification for homing -- bow/crossbow/nailgun only.
+        # There is no more separate aim-point adjustment here: the aimbot
+        # aims straight at the current target position, and ProjectileHoming
+        # (below) does 100% of the ballistics compensation, continuously,
+        # from the arrow's own live position -- which makes an upfront
+        # open-loop drop/lead solve redundant on top of it. This block's
+        # only job now is: identify the weapon, and learn its real
+        # speed/drag/gravityModifier off a live arrow so homing's own
+        # correction solve uses real numbers instead of the hardcoded table.
         # Every skip below reports itself. A silent skip is indistinguishable
         # from a broken offset chain: this block quietly did nothing for bows
         # because _resolve_weapon returned "" whenever heldEntity read null,
         # and there was no way to tell that from "you are holding a rifle".
         skip_reason = None
         weapon_key = None
-        if not getattr(vs, 'aim_projectile_lead', True):
-            skip_reason = "turned off in settings"
+        if not getattr(vs, 'aim_projectile_homing', False):
+            skip_reason = "homing turned off in settings -- nothing to feed"
         elif self._recoil_engine is None:
             skip_reason = "no recoil_engine -- weapon identity unavailable"
         else:
@@ -1752,9 +1654,9 @@ class AimEngine:
             proj = PROJECTILE_TABLE.get(weapon_key)
             if proj is None:
                 skip_reason = (
-                    "weapon not identified -- held-item chain returned nothing"
+                    f"weapon not identified -- {getattr(self._recoil_engine, 'last_status', 'no status')}"
                     if not weapon_key else
-                    "hitscan weapon, no drop to solve"
+                    "hitscan weapon, nothing for homing to steer"
                 )
             else:
                 # Measured values (read off a real arrow in flight) beat the
@@ -1772,53 +1674,36 @@ class AimEngine:
                 )
                 learned = self._ballistics.learned(weapon_key)
                 speed, drag, gravity_scale = learned if learned is not None else proj
-                base_g = getattr(vs, 'aim_gravity', GRAVITY_MPS2)
-                lead_vel = self._lead_vel.update(
-                    target_pm, target.get('vel'), now,
-                    tau=getattr(vs, 'aim_lead_smooth_s', 0.15),
-                )
-                adjusted = _projectile_aim_point(
-                    eye_origin, head_pos, lead_vel, speed,
-                    gravity_scale, drag, base_g,
-                )
                 if dbg and cadence_ok:
                     self._next_debug_at = now + 0.5
-                    drop = adjusted[1] - head_pos[1]
-                    lead = math.sqrt(
-                        (adjusted[0] - head_pos[0]) ** 2 + (adjusted[2] - head_pos[2]) ** 2
-                    )
                     src = "measured" if learned is not None else "table"
-                    raw_v = target.get('vel') or (0.0, 0.0, 0.0)
                     why = "" if learned is not None else \
                         f" why_table='{self._ballistics.last_status}'"
                     print(
                         f"[AIM-BALLISTIC] weapon={weapon_key} src={src}{why} "
-                        f"speed={speed:.1f}m/s drag={drag:.3f} "
-                        f"gmod={gravity_scale:.2f} g_eff={base_g * gravity_scale:.2f}m/s2 "
-                        f"drop={drop:.2f}m lateral_lead={lead:.2f}m "
-                        f"|v|raw={math.sqrt(sum(c * c for c in raw_v)):.2f} "
-                        f"|v|lead={math.sqrt(sum(c * c for c in (lead_vel or (0, 0, 0)))):.2f} "
-                        f"coh={self._lead_vel.coherence:.2f} "
-                        f"tau={self._lead_vel.tau:.2f}s",
+                        f"speed={speed:.1f}m/s drag={drag:.3f} gmod={gravity_scale:.2f}",
                         flush=True,
                     )
-                head_pos = adjusted
 
-                # Homing runs off the SAME measured ballistics, so the curve
-                # it steers onto is one the game's integrator will really fly.
-                if getattr(vs, 'aim_projectile_homing', False):
-                    n = self._homing.tick(
-                        getattr(model, 'ga', 0), local_bp, local_pos, players,
-                        now, speed, drag, gravity_scale, base_g,
-                        turn_dps=getattr(vs, 'aim_homing_turn_dps', 60.0),
-                        bone_id=vs.aim_head_bone_id,
+                # GRAVITY_MPS2 is now purely internal to homing's own
+                # continuous correction solve -- there is no more user-facing
+                # "Gravity" setting. A closed loop that re-aims every tick off
+                # the target's ACTUAL live position is self-correcting for a
+                # slightly-wrong gravity constant in a way the old one-shot
+                # open-loop drop solve never was, so tuning it stopped being
+                # worth exposing.
+                n = self._homing.tick(
+                    getattr(model, 'ga', 0), local_bp, local_pos, players,
+                    now, speed, drag, gravity_scale, GRAVITY_MPS2,
+                    turn_dps=getattr(vs, 'aim_homing_turn_dps', 60.0),
+                    bone_id=vs.aim_head_bone_id,
+                )
+                if dbg and n and cadence_ok:
+                    print(
+                        f"[AIM-HOMING] {self._homing.last_status} "
+                        f"cap={getattr(vs, 'aim_homing_turn_dps', 60.0):.0f}deg/s",
+                        flush=True,
                     )
-                    if dbg and n and cadence_ok:
-                        print(
-                            f"[AIM-HOMING] {self._homing.last_status} "
-                            f"cap={getattr(vs, 'aim_homing_turn_dps', 60.0):.0f}deg/s",
-                            flush=True,
-                        )
 
         if skip_reason is not None and dbg and cadence_ok:
             self._next_debug_at = now + 0.5

@@ -1462,17 +1462,28 @@ class RustGameModel(legacy.RustGame):
             self._consume_rig_job(pm, by_pm.get(pm, {}))
 
         def decode_position(lo, hi):
+            """Returns (pos, why) -- why is None on success.
+
+            This is the LIVE path (model.py overrides legacy_runtime.py's
+            _read_player_frame_batch without super() -- see
+            rust-esp-live-code-lives-in-overrides). An earlier [PM-DROP]
+            reject-reason fix landed in legacy_runtime.py's copy of this
+            same function first, which is never actually called for the
+            running RustGameModel -- every drop kept reporting the same
+            "no candidate produced" default regardless of the real cause
+            because that write never ran. Fixed here instead.
+            """
             raw = struct.pack("<QQ", lo, hi)
             pos = struct.unpack_from("<fff", raw)
-            if (
-                all(math.isfinite(c) for c in pos)
-                and abs(pos[0]) < 6000
-                and abs(pos[2]) < 6000
-                and -200 < pos[1] < 2000
-                and pos != (0.0, 0.0, 0.0)
-            ):
-                return pos
-            return None
+            if not all(math.isfinite(c) for c in pos):
+                return None, "non-finite read (garbage or failed read)"
+            if pos == (0.0, 0.0, 0.0):
+                return None, "read returned zeros"
+            if not (abs(pos[0]) < 6000 and abs(pos[2]) < 6000):
+                return None, f"x/z out of map bounds ({pos[0]:.0f},{pos[2]:.0f})"
+            if not (-200 < pos[1] < 2000):
+                return None, f"y out of range ({pos[1]:.0f})"
+            return pos, None
 
         def decode_velocity(lo, hi):
             raw = struct.pack("<QQ", lo, hi)
@@ -1546,17 +1557,30 @@ class RustGameModel(legacy.RustGame):
             transform_pos = None
 
             candidates = []
+            reject_why = None
             for offset, prefix in ((legacy.OFF.position_pm, "server_0"),):
-                pos = decode_position(
+                pos, why = decode_position(
                     fields.get(prefix + "_lo", 0),
                     fields.get(prefix + "_hi", 0),
                 )
-                if pos is not None and not (
-                    abs(pos[0]) < 2.0
-                    and abs(pos[1]) < 2.0
-                    and abs(pos[2]) < 2.0
-                ):
-                    candidates.append((offset, pos))
+                if pos is None:
+                    reject_why = why
+                    continue
+                if abs(pos[0]) < 2.0 and abs(pos[1]) < 2.0 and abs(pos[2]) < 2.0:
+                    # The map is centred on the origin, so this 2 m cube is a
+                    # real place to stand -- kept as a reject for now (see
+                    # OFF.position_pm's history), but flagged as such rather
+                    # than silently folded into "no candidate produced".
+                    reject_why = f"inside the 2m origin guard {pos}"
+                    continue
+                candidates.append((offset, pos))
+            why_map = getattr(self, "_pos_reject_why", None)
+            if why_map is None:
+                why_map = self._pos_reject_why = {}
+            if candidates:
+                why_map.pop(pm, None)
+            elif reject_why is not None:
+                why_map[pm] = reject_why
             selected = self._select_pm_position(pm, candidates)
             if selected is not None:
                 server_positions[pm] = selected

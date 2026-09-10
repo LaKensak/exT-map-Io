@@ -513,15 +513,26 @@ class ProjectileBallistics:
             return None
 
         if self._owner_off is None:
-            # Probe: one batch over the whole candidate window for each
-            # projectile until a slot holds exactly our BasePlayer.
+            # Probe: ONE batch over every (projectile, candidate offset)
+            # pair at once (see ARCHITECTURE.md 3.3 -- never read in a
+            # loop), not one IOCTL per projectile. MAX_PROJECTILES caps
+            # `ptrs` at 32 and the window is 16 offsets, so this is at most
+            # 512 addresses -- comfortably one transaction.
             lo, hi = self.OWNER_SEARCH
             offs = list(range(lo, hi, 8))
+            addrs = [p + o for p in ptrs for o in offs]
+            vals = self.mem.batch_u64(addrs, attempts=1) or []
+            # addrs (and vals, in lockstep) are laid out p-major/off-minor,
+            # so idx already lands on the right slot without any extra
+            # bookkeeping -- it advances by exactly len(offs) per p whether
+            # or not the inner loop found a match first.
+            idx = 0
             for p in ptrs:
-                vals = self.mem.batch_u64([p + o for o in offs], attempts=1)
-                for off, v in zip(offs, vals or ()):
-                    if v == local_bp:
+                for off in offs:
+                    if idx < len(vals) and vals[idx] == local_bp:
                         self._owner_off = off
+                    idx += 1
+                    if self._owner_off is not None:
                         break
                 if self._owner_off is not None:
                     break
@@ -813,9 +824,14 @@ class TeamFilter:
         try:
             if self._off is None:
                 # Decide the offset on the local player, the one BasePlayer we
-                # are certain about.
-                for off in self.CANDIDATES:
-                    v = self.mem.u64(local_bp + off)
+                # are certain about. One batch over both candidates, not a
+                # loop of individual reads (see ARCHITECTURE.md 3.3) --
+                # CANDIDATES has only two entries, but the pattern should
+                # still be batch-first, not "loop until good enough".
+                cand_vals = self.mem.batch_u64(
+                    [local_bp + off for off in self.CANDIDATES], attempts=1,
+                )
+                for off, v in zip(self.CANDIDATES, cand_vals or ()):
                     if self._plausible(v):
                         self._off = off
                         break

@@ -2957,6 +2957,10 @@ class RustGame:
         self._entity_chain_at = 0.0
         self._entity_prefab_cache = {}
         self._entity_prefab_cursor = 0
+        # Set by _entity_baseplayers_locked every call; read by
+        # [PM2BP-STUCK] so "live_bps=27" comes with WHY it's 27 instead of
+        # needing a second investigation the next time it looks too low.
+        self._entity_bp_diag = "not run yet"
         self._player_model_offset = OFF.playerModel
         self._last_bp_source = "none"
         # A pm's consecutive _resolve_pm_to_bp miss count -- see
@@ -6723,9 +6727,23 @@ class RustGame:
     def _entity_baseplayers_locked(self, max_count):
         buf = self._entity_buffer_locked(max_count)
         if buf is None:
+            # _resolve_entity_chain() itself failed -- distinct from "found
+            # the chain but the array read came back empty" below.
+            self._entity_bp_diag = "no entity chain (see [DBG] no BN chain)"
             return []
-        _list_dict, _arr, ptrs, _count = buf
+        _list_dict, _arr, ptrs, raw_count = buf
         if not ptrs:
+            # raw_count is the array's OWN element count, read before
+            # _read_il2cpp_array_ptrs runs -- if this is > max_count
+            # (WORLD_ENTITY_MAX_SCAN, 20000), that function hard-rejects the
+            # WHOLE read (see its own top line) instead of truncating, so a
+            # busy server's true entity count silently produces nothing here
+            # rather than a partial list. That is the one case worth
+            # distinguishing from "genuinely 0 entities right now".
+            self._entity_bp_diag = (
+                f"array read empty (raw_count={raw_count}, "
+                f"max_count={max_count}{' -- OVER THE CAP' if raw_count > max_count else ''})"
+            )
             return []
 
         # prefabID is a plain uint at BaseNetworkable+0x54 and the player prefab
@@ -6762,6 +6780,17 @@ class RustGame:
                     cache[q] = prefab
 
         players = [q for q in ptrs if cache.get(q) == OFF.k_player_prefab_id]
+        # Diagnostic for [PM2BP-STUCK] (see OFF.k_player_prefab_id -- that
+        # hash is independently confirmed correct, 2026-09-10, against a
+        # public StringPool reference for assets/prefabs/player/player.prefab
+        # -- so if this ever shows a low player count against a busy server,
+        # look at raw_count/uncached below, not the hash).
+        uncached = sum(1 for q in ptrs if q not in cache)
+        self._entity_bp_diag = (
+            f"raw_count={raw_count} ptrs={len(ptrs)} players={len(players)} "
+            f"uncached_prefab={uncached} "
+            f"fallback={'YES (0 players matched)' if not players else 'no'}"
+        )
         # If the prefab hash ever changes, retain the structurally safe fallback
         # instead of making every PlayerModel mapping disappear.
         return players or ptrs
@@ -6791,8 +6820,10 @@ class RustGame:
         # (e.g. 0xE8, 0xD0) as well as the higher range from older dumps.
         offsets = list(range(0x18, 0x901, 8))
         sample_bps = bp_ptrs[:min(len(bp_ptrs), 24)]
-        best_off = 0
-        best_hits = 0
+        # Track the top TWO, not just the best -- see the acceptance check
+        # below for why the runner-up matters.
+        best_off = second_off = 0
+        best_hits = second_hits = 0
         for i in range(0, len(offsets), 64):
             chunk = offsets[i:i + 64]
             addrs = [bp + off for bp in sample_bps for off in chunk]
@@ -6804,12 +6835,41 @@ class RustGame:
                     if idx < len(vals) and vals[idx] in pm_set:
                         hits_by_off[off] += 1
                     idx += 1
-            off, hits = max(hits_by_off.items(), key=lambda item: item[1])
-            if hits > best_hits:
-                best_off = off
-                best_hits = hits
+            for off, hits in hits_by_off.items():
+                if hits > best_hits:
+                    second_off, second_hits = best_off, best_hits
+                    best_off, best_hits = off, hits
+                elif hits > second_hits:
+                    second_off, second_hits = off, hits
 
-        if best_hits:
+        # `self._player_model_offset` is SHARED, cached state -- every future
+        # tick's fast path (map_known_offset(cached_bps, ...)) trusts it
+        # blindly, for every player, not just the ones this call is chasing.
+        # The old bar here was `if best_hits:`, i.e. ONE coincidental pointer
+        # match anywhere across up to 24 BasePlayers x ~280 offsets was
+        # enough to overwrite it -- and unlike a per-call miss, this failure
+        # doesn't go away next tick: it corrupts the shared offset
+        # permanently (nothing here ever un-latches it), so every player who
+        # hits this fallback afterward inherits the wrong value until the
+        # process restarts. That silent-corruption shape is exactly the "a
+        # player never comes back, only a relaunch fixes it" report this was
+        # added to explain. offsets_decrypts_export.h independently confirms
+        # 0x498 for this build, so this scanner should now rarely if ever
+        # legitimately need to override it -- raising the bar costs nothing
+        # real and closes the false-positive path.
+        #
+        # Confidence bar: enough of pm_set actually matched (not just one
+        # lucky pointer -- more than half of what COULD have matched, given
+        # how many BasePlayers were sampled), AND the winner clearly beats
+        # the runner-up (a near-tie means the data doesn't distinguish them,
+        # which is exactly the situation a single coincidental hit produces).
+        achievable = min(len(sample_bps), len(pm_set))
+        confident = (
+            best_hits >= 2
+            and best_hits >= max(2, (achievable + 1) // 2)
+            and best_hits > second_hits
+        )
+        if confident:
             changed = best_off != self._player_model_offset
             self._player_model_offset = best_off
             if changed:
@@ -6818,10 +6878,24 @@ class RustGame:
                 # offset has drifted. Print unconditionally, once per change.
                 print(
                     f"[PM2BP-DBG] BasePlayer.playerModel offset changed to "
-                    f"0x{best_off:X} ({best_hits}/{len(sample_bps)} sample hits)",
+                    f"0x{best_off:X} ({best_hits}/{len(sample_bps)} sample hits, "
+                    f"runner-up 0x{second_off:X}={second_hits})",
                     flush=True,
                 )
             return map_at(best_off)
+        if best_hits:
+            # Did not clear the confidence bar -- report it (this used to be
+            # silent, indistinguishable from a genuine 0/24 miss) but do NOT
+            # touch self._player_model_offset. This call's own contribution
+            # fails; the shared, known-good offset survives for next time.
+            print(
+                f"[PM2BP-DBG] offset scan found only weak evidence, ignoring "
+                f"it: best=0x{best_off:X} hits={best_hits} vs runner-up "
+                f"0x{second_off:X}={second_hits} (sampled {len(sample_bps)} "
+                f"bps against {len(pm_set)} still-missing pm) -- keeping "
+                f"0x{self._player_model_offset:X}",
+                flush=True,
+            )
         return {}
 
     def _resolve_pm_to_bp(self, pm_ptrs):
@@ -6925,7 +6999,8 @@ class RustGame:
                     f"{PM2BP_STUCK_STREAK} consecutive walks | "
                     f"live_bps={len(live_bps)} "
                     f"seen_in_entity_walk={pm in live_values} "
-                    f"offset=0x{self._player_model_offset:X}",
+                    f"offset=0x{self._player_model_offset:X} "
+                    f"entity_walk[{self._entity_bp_diag}]",
                     flush=True,
                 )
 

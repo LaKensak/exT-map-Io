@@ -197,11 +197,25 @@ class RecoilEngine:
                 return cand
             self._held_entity_off = None      # stopped validating; re-probe
 
-        for off in self.HELD_ENTITY_CANDIDATES:
-            cand = self._safe_u64(matched_item + off)
-            if not legacy._valid_user_ptr(cand):
-                continue
-            if legacy._valid_user_ptr(self._safe_u64(cand + OFF_RECOIL_PROPS)):
+        # Batched, not a loop of individual reads (ARCHITECTURE.md 3.3):
+        # both candidate pointers in one call, then -- since which
+        # candidates are even worth checking for RecoilProperties depends
+        # on THAT result -- their +OFF_RECOIL_PROPS reads in a second,
+        # smaller batch. Two stages for a two-hop dependency, same shape
+        # the doc itself uses for multi-stage chains.
+        cand_addrs = [matched_item + off for off in self.HELD_ENTITY_CANDIDATES]
+        cand_vals = self.mem.batch_u64(cand_addrs, attempts=1) or []
+        live = [
+            (off, cand) for off, cand in zip(self.HELD_ENTITY_CANDIDATES, cand_vals)
+            if legacy._valid_user_ptr(cand)
+        ]
+        if not live:
+            return 0
+        rp_vals = self.mem.batch_u64(
+            [cand + OFF_RECOIL_PROPS for _, cand in live], attempts=1,
+        ) or []
+        for (off, cand), rp in zip(live, rp_vals):
+            if legacy._valid_user_ptr(rp):
                 self._held_entity_off = off
                 return cand
         return 0

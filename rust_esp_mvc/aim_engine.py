@@ -1329,7 +1329,8 @@ class AimEngine:
 
     def select_target(self, players, eye_origin, cur_pitch, cur_yaw,
                       fov_deg, bone_id=53, sticky_pm=0, sticky_until=0.0,
-                      max_dist=0.0, dist_bias=0.0, is_teammate=None):
+                      max_dist=0.0, dist_bias=0.0, is_teammate=None,
+                      exclude_npcs=True):
         """Pick the best player inside a world-space FOV cone.
 
         Ranking is angular distance from the crosshair, optionally biased
@@ -1338,8 +1339,11 @@ class AimEngine:
         three degrees off, even though the near one is obviously who you are
         shooting at. `dist_bias` scales that -- 0 restores pure angle.
 
-        `max_dist` drops targets beyond a range entirely (0 = no limit), and
-        `is_teammate(pm)` drops your own team.
+        `max_dist` drops targets beyond a range entirely (0 = no limit),
+        `is_teammate(pm)` drops your own team, and `exclude_npcs` drops
+        scientists/zombies/etc (see legacy_runtime.NpcClassifier) -- their
+        `is_npc` flag is already on the player dict, no separate lookup
+        needed the way team status needs TeamFilter.
 
         A sticky target still in the cone wins over a closer one, so the pick
         does not flap between two players at similar angles.
@@ -1355,6 +1359,8 @@ class AimEngine:
 
         for p in players:
             if p.get("sleeping"):
+                continue
+            if exclude_npcs and p.get("is_npc", False):
                 continue
             pm = p.get("pm", 0)
             if is_teammate is not None and is_teammate(pm):
@@ -1593,6 +1599,7 @@ class AimEngine:
                 max_dist=getattr(vs, 'aim_max_distance_m', 0.0),
                 dist_bias=getattr(vs, 'aim_distance_bias', 0.5),
                 is_teammate=teammate_fn,
+                exclude_npcs=getattr(vs, 'aim_exclude_npcs', True),
                 # NOT gated on aim_humanize. Holding a target is aim
                 # correctness, not a human-imitation flourish: with it off the
                 # pick was redone from scratch every tick and flapped between

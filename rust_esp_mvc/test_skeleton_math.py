@@ -287,14 +287,24 @@ class EntityBufferCostTests(unittest.TestCase):
         found = game._entity_baseplayers(20000)
         first_batch = game.m.batch_addrs
         self.assertEqual(set(found), _PLAYERS)
-        self.assertEqual(first_batch, _ENTITY_COUNT)
+        # One batch for prefab_id (_ENTITY_COUNT addrs) plus one for the
+        # klass-ptr NPC check, which only runs on entities the prefab check
+        # didn't already clear as human (<= _ENTITY_COUNT more) -- see
+        # _entity_npc_klass_cache in _entity_baseplayers_locked.
+        self.assertGreaterEqual(first_batch, _ENTITY_COUNT)
+        self.assertLessEqual(first_batch, 2 * _ENTITY_COUNT)
 
         game._entity_ptr_cache_at = 0.0   # force a real walk, not a TTL hit
         found_again = game._entity_baseplayers(20000)
         second_batch = game.m.batch_addrs - first_batch
         self.assertEqual(set(found_again), _PLAYERS)
+        # Both the prefab cache and the NPC-klass cache revalidate off the
+        # same rotating window, so a later walk pays for at most two such
+        # windows, not just one (+ a small margin: the NPC check additionally
+        # excludes whichever window entries the prefab pass just confirmed
+        # human, so its own candidate count isn't bit-for-bit the same size).
         self.assertLessEqual(
-            second_batch, legacy.ENTITY_PREFAB_REVALIDATE_PER_SCAN
+            second_batch, 2 * legacy.ENTITY_PREFAB_REVALIDATE_PER_SCAN + len(_PLAYERS)
         )
 
     def test_failed_prefab_read_is_not_cached(self):

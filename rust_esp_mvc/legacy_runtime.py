@@ -982,24 +982,24 @@ class Mem:
 class OFF:
     # --- Klass RVAs (GameAssembly.dll) ---
     # 2026-09-08 fresh dump — updated after game update
-    BaseNetworkable_c           = 0x118D4020  # game update 2026-09-10 (was 0x119B5410)
-    BasePlayer_c                = 0x11999730  # STALE (2026-09-07) — not in new dump
-    MainCamera_c                = 0x118B4098  # game update 2026-09-10 (was 0x119B0A40)
-    LocalPlayer_c               = 0x1198FC28  # STALE (2026-09-07) — not in new dump
-    ListComponent_PlayerModel_c = 0x118D8CB0  # game update 2026-09-10 (was 0x1196D5A8)
-    BaseViewModel_c             = 0x11944670  # dump 2026-09-08
-    TOD_Sky_c                   = 0x119CC870  # dump 2026-09-08
-    BaseEntity_c                = 0x118F4970  # STALE (2026-09-07) — not in new dump
-    BaseCombatEntity_c          = 0x119E4848  # STALE (2026-09-07) — not in new dump
-    BaseProjectile_c            = 0x119E9418  # STALE (2026-09-07) — not in new dump
+    BaseNetworkable_c           = 0x10BE8EC8  # game update 2026-09-11 (was 0x118D4020) -- export.h typeinfo == UC 'P' BaseNetworkable_Static
+    BasePlayer_c                = 0x10C06290  # game update 2026-09-11 -- script.json BasePlayer_TypeInfo == UC 'P' Class_BasePlayer
+    MainCamera_c                = 0x10C62B28  # game update 2026-09-11 (was 0x118B4098) -- export.h == script.json == UC 'P'
+    LocalPlayer_c               = 0x10C519C8  # game update 2026-09-11 -- UC 'P' Class_LocalPlayer == two UC posts' LP klass
+    ListComponent_PlayerModel_c = 0x10C53E98  # game update 2026-09-11 (was 0x118D8CB0) -- export.h == script.json
+    BaseViewModel_c             = 0x10C08DE8  # game update 2026-09-11 -- export.h
+    TOD_Sky_c                   = 0x10C593A8  # game update 2026-09-11 -- export.h == UC 'P' TOD_Sky_Static
+    BaseEntity_c                = 0x10CAF278  # game update 2026-09-11 -- script.json
+    BaseCombatEntity_c          = 0x10C13F48  # game update 2026-09-11 -- script.json
+    BaseProjectile_c            = 0x10BFE170  # game update 2026-09-11 -- script.json
     GameManager_c               = 0x11866048  # STALE (2026-09-07) — not in new dump
     ItemIcon_c                  = 0x11623CF0  # STALE (2026-09-07) — not in new dump
-    OreResourceEntity_c         = 0x115DEA50  # STALE (build 24840484)
-    CollectibleEntity_c         = 0x115DDE18  # STALE (build 24840484)
-    WorldItem_c                 = 0x115DDCF8  # STALE (build 24840484)
-    DroppedItemContainer_c      = 0x115DEA10  # STALE (build 24840484)
-    BuildingPrivlidge_c         = 0x1156FE20  # STALE (build 24840484)
-    LootContainer_c             = 0x10889998  # STALE (build 24614784)
+    OreResourceEntity_c         = 0x10C6FD58  # game update 2026-09-11 -- script.json
+    CollectibleEntity_c         = 0x10C716A8  # game update 2026-09-11 -- script.json
+    WorldItem_c                 = 0x10C68540  # game update 2026-09-11 -- script.json
+    DroppedItemContainer_c      = 0x10C6FD40  # game update 2026-09-11 -- script.json
+    BuildingPrivlidge_c         = 0x10BF01D8  # game update 2026-09-11 -- script.json
+    LootContainer_c             = 0x10C57E60  # game update 2026-09-11 -- script.json
     IL2CppHandle_c              = 0x11A88F30  # STALE (2026-09-07) — not in new dump
     # Game update 2026-09-10, resolved. The user found it directly in a
     # fresh script.json TypeInfo listing: {"Address": 294759824, "Name":
@@ -1013,7 +1013,7 @@ class OFF:
     # as BaseNetworkable_c/MainCamera_c/ListComponent_PlayerModel_c above,
     # which this update also moved -- a real sanity check, not just a
     # plausible-looking number.
-    ProjectileList_c            = 0x1191AD90  # game update 2026-09-10 (was 0x1195F430, unverified NeoRed SDK v6 value)
+    ProjectileList_c            = 0x10C6C9A0  # game update 2026-09-11 -- script.json ListComponent<Projectile>_TypeInfo == UC 'P' (0x1191B3A8 was the previous build's range)
 
 
     # --- IL2CPP API RVAs ---
@@ -1045,8 +1045,8 @@ class OFF:
     # Result: clientEntities is at +0x0, not +0x8. Swapped the primary/alt
     # pair below; the existing probe still tries both, so this only saves
     # the wasted first attempt each run, not a correctness requirement.
-    wrapper_in_static     = 0x0   # WRAPPER: clientEntities wrapper in static fields (was 0x8)
-    wrapper_in_static_alt = 0x8   # the other of the two HiddenValue<ClientRealm> statics (was 0x0)
+    wrapper_in_static     = 0x20  # game update 2026-09-11: UC 'P' BaseNetworkable_Static.client_entities=0x20, user header wcp=0x20 (was 0x0)
+    wrapper_in_static_alt = 0x0   # previous build's slot, still probed as a fallback
     hv_slot             = 0x18  # HV_HANDLE: HiddenValue<T>._handle encrypted u64
     hv_has_value        = 0x10  # HV_HAS_VALUE: HiddenValue<T>._hasValue init-flag
     # was 0x14 (build 24840484); new dump 2026-09-03 moves _hasValue to
@@ -1054,7 +1054,7 @@ class OFF:
     # Per trap #2 we do NOT gate on _hasValue anyway (cl1kexternal reads
     # the handle unconditionally), so this update is for correctness only,
     # not runtime behaviour.
-    parent_in_realm     = 0x10  # PARENT: EntityRealm -> entity_list/parent
+    parent_in_realm     = 0x18  # game update 2026-09-11: UC 'P' EntityRealm.entity_list=0x18, user header wc=0x18 (was 0x10)
     # list_dict + buffer_array IS the Il2CppArray itself (no separate
     # BufferList wrapper) — empirically confirmed, elements have valid
     # klass pointers. buffer_count is relative to the ARRAY, not list_dict:
@@ -1104,105 +1104,74 @@ class OFF:
     # container_belt/wear, item_list, mainCamera...), so it's trusted higher
     # where the two conflict. Went with this one; revert to the NeoRed pair
     # above if local-player resolution breaks in-game.
-    LocalPlayer_Entity           = 0x8
+    LocalPlayer_Entity           = 0x18  # game update 2026-09-11: UC 'P' LocalPlayer_Static.Entity=0x18 == a UC poster's IDA of GetLocalPlayer (*(sf+24)) (was 0x8)
     BasePlayer_visiblePlayerList = 0x138  # encrypted dictionary; no direct list traversal
     ListHashSet_vals             = 0x10   # ListHashSet<T>::_vals (T[] inner array at +0x10)
     ListHashSet_size             = 0x18   # ListHashSet<T>::_size (element count, NOT array capacity)
 
     # --- ListComponent<PlayerModel> (martin dumper) ---
-    ListComponent_instance  = 0x8   # sf → singleton at sf+0x8
+    ListComponent_instance  = 0x18  # game update 2026-09-11: martin's dumper log 'instance (wrapper) offset: 0x18' (was 0x8)
     ListComponent_parent    = 0x18  # game update 2026-09-10: parent=0x18 (was 0x10 on 2026-09-08 -- reverted, not a fresh guess: this build's export.h says the same 0x18 the 2026-09-05-and-earlier builds used)
     ListComponent_buffer    = 0x10  # dump 2026-09-08: buffer=0x10 (unchanged 2026-09-10)
     ListComponent_size      = 0x18  # BufferList.count at +0x18 (unchanged 2026-09-10)
 
-    # --- BasePlayer (game update 2026-09-10, offsets_decrypts_export.h) ---
-    playerModel         = 0x498  # game update 2026-09-10 (was 0x7A0)
-    input               = 0x630  # game update 2026-09-10 (was 0x3E8) -- header calls this playerInput
-    eyes                = 0x6F8  # game update 2026-09-10 (was 0x348) -- header calls this playerEyes
-    inventory           = 0x3B8  # game update 2026-09-10 (was 0x510) -- header calls this playerInventory
-    _displayName        = 0x2F8  # game update 2026-09-10 (was 0x438) -- header calls this username
-    userID              = 0x720  # STALE (2026-09-07) — not in new dump
-    userID_string       = 0x3C0  # STALE (2026-09-07) — not in new dump
-    playerFlags         = 0x6D8  # dump 2026-09-08 (unchanged through 2026-09-10 update)
-    cl_active_item      = 0x588  # dump 2026-09-08 (unchanged through 2026-09-10 update)
-    held_entity_cache   = 0x5E0  # STALE (2026-09-07) — not in new dump
-    base_movement       = 0x540  # STALE (2026-09-07) — not in new dump
-    current_team        = 0x558  # confirmed by the user's own dump 2026-09-09 (unchanged through 2026-09-10 update)
-    model_state         = 0x4B0  # STALE (2026-09-07) — not in new dump
-    belt_shortcut       = 0x338  # STALE (2026-09-07) — not in new dump
+    # --- BasePlayer (game update 2026-09-11) ---
+    # Three sources agree on every value below: offsets_decrypts_export.h
+    # (martin), the UC "P" dump and the user's second header -- and this
+    # build's dump.cs types the ones it can (PlayerModel at 0x2F0,
+    # HiddenValue<PlayerInventory> at 0x3A0, BaseMovement at 0x348,
+    # ModelState at 0x4B0, PlayerBelt at 0x3C0).
+    playerModel         = 0x2F0  # game update 2026-09-11 (was 0x498)
+    input               = 0x6F0  # game update 2026-09-11 (was 0x630)
+    eyes                = 0x718  # game update 2026-09-11 (was 0x6F8)
+    inventory           = 0x3A0  # game update 2026-09-11 (was 0x3B8)
+    _displayName        = 0x520  # game update 2026-09-11 (was 0x2F8)
+    userID              = 0x720  # UC "P" 2026-09-11
+    userID_string       = 0x748  # UC "P" 2026-09-11
+    playerFlags         = 0x6D8  # unchanged (all three sources)
+    cl_active_item      = 0x588  # unchanged (all three sources)
+    held_entity_cache   = 0x5E0  # STALE (2026-09-07) -- unused
+    base_movement       = 0x348  # dump.cs BaseMovement-typed field == UC "P" movement
+    current_team        = 0x558  # unchanged (all three sources)
+    model_state         = 0x4B0  # dump.cs ModelState-typed field == UC "P"
+    belt_shortcut       = 0x3C0  # dump.cs PlayerBelt-typed field == UC "P" Belt
 
     # --- WorldItem (dropped item entity) ---
     world_item_item     = 0x208  # WorldItem.item -> Item* (confirmed by rust-dumper SDK, 2026-08-21)
 
-    # --- Item ---
-    # Game update 2026-09-10 reshuffled this class -- item_definition moved
-    # from a live-confirmed 0xA0 to 0x70, which alone proves every offset
-    # below it needs re-verification, not just a klass RVA change. Read
-    # directly out of the fresh dump.cs (TypeDefIndex 700), which prints real
-    # FIELD TYPES even where names are hash-obfuscated -- this is stronger
-    # evidence than offsets_decrypts_export.h's own "// test these" guesses,
-    # which don't carry type info and got item_definition/item_list wrong.
-    # New layout (instance fields only, statics omitted):
-    #   0x10 (opaque struct), 0x18 bool, 0x20 EntityRef-shaped struct (type
-    #   repeats at 0xC0), 0x30 Nullable<int>, 0x38 float [condition],
-    #   0x3C int, 0x40 Item.Flag, 0x48 ItemContainer [contents],
-    #   0x50 ulong, 0x58/0x5C float, 0x60 Action<Item>,
-    #   0x68 ItemContainer [parent], 0x70 ItemDefinition [info],
-    #   0x78 uint, 0x7C float, 0x80 (opaque, Pool-managed type),
-    #   0x88 string, 0x90/0x94/0x98 float, 0x9C bool, 0xA0 int,
-    #   0xA8 string, 0xB0 (opaque struct), 0xB8 ulong,
-    #   0xC0 EntityRef-shaped struct (same type as 0x20),
-    #   0xD0 List<...>, 0xD8 Nullable<int>, 0xE0 string.
-    item_definition     = 0x70   # game update 2026-09-10 (was 0xA0). ItemDefinition-typed field, unambiguous in dump.cs -- confirmed by BOTH dump.cs and the header.
-    # Item has exactly two ItemContainer-typed fields (0x48, 0x68), the same
-    # parent/contents pair the class had before the update, just moved.
-    # ItemContainer.parent (below) points BACK to this same field at Item's
-    # 0x68, i.e. Item.parent<->ItemContainer.parent is a matched pair -- a
-    # real structural cross-check, not a guess.
-    item_parent_container = 0x68 # was 0x10 pre-update. UNCONFIRMED role (parent vs contents) but cross-checked against ItemContainer.parent (0x20) pointing back to a same-typed field. Unused in this codebase.
-    item_contents       = 0x48   # was 0x28 pre-update. UNCONFIRMED role -- see item_parent_container. Unused in this codebase.
-    # item_uid: RESOLVED by a second, independent dumper source (2026-09-10,
-    # user-supplied `struct item { ... uid = 0x80; }`). That source's OTHER
-    # values are strong corroboration -- it hands back item_list=0x48,
-    # item.definition=0x70, and the wear=0x30/main=0x60/belt=0x78 triple bit
-    # for bit identical to what this file already had (the triple from live
-    # in-game correction, the other two from dump.cs field-typing), so its
-    # uid=0x80 is trusted over the earlier reasoned guess of 0xB8.
-    # The earlier guess had rejected 0x80 for looking like "an opaque
-    # Pool-managed type" rather than a plain ulong in dump.cs -- that was a
-    # misread, not a real conflict: Item.uid's real type is `ItemId`, a
-    # readonly struct WRAPPING a single ulong, not a bare ulong field, so
-    # dump.cs printing a struct-shaped type at 0x80 is exactly what a
-    # correctly-identified ItemId field should look like.
-    item_uid            = 0x80   # game update 2026-09-10, second-source confirmed (was 0xB8 reasoned guess, was 0xD8 pre-update)
-    # item_worldEnt/item_heldEntity/item_held_entity_direct remain
-    # unresolved. The same second source that settled item_uid gives
-    # `item.held_entity = 0x0` for this field -- clearly a placeholder, not
-    # a real class-relative offset (nothing in Item lives at 0x0), so it
-    # independently confirms this field is HARD to pin down rather than
-    # handing over a working number. Left at the pre-update values below
-    # even though those are almost certainly wrong too (the old EntityRef
-    # pair sat at 0x80/0xB8, both now claimed by other fields; dump.cs shows
-    # the EntityRef-shaped struct pair moved to 0x20/0xC0). Unlike item_uid,
-    # a wrong held-entity offset has NO clean self-check -- it just
-    # validates as "some pointer" and silently poisons whatever reads it
-    # next, which is exactly how this field broke two features at once
-    # before. NEEDS A LIVE PROBE (read both 0x20 and 0xC0 off a matched
-    # item, check which one's target class name matches a weapon/BaseEntity
-    # prefab) before either value is used.
-    item_worldEnt       = 0xB8   # STALE post-2026-09-10 update -- do not trust, see comment above
-    item_heldEntity     = 0x80   # STALE post-2026-09-10 update -- do not trust, see comment above (also now collides with the corrected item_uid value; unrelated fields, not a bug)
-    item_held_entity_direct = 0xB8  # STALE post-2026-09-10 update -- see item_heldEntity
-    item_amount         = 0xA0   # second-source value (2026-09-10). Unused in this codebase.
-    item_condition      = 0x68   # STALE (2026-09-07) — not in new dump, unused in this codebase
-    item_max_condition  = 0xC4   # STALE (2026-09-07) — not in new dump, unused in this codebase
-    item_position       = 0x90   # STALE post-2026-09-10 update. Unused in this codebase.
-    item_clientAmmoCount = 0xB8  # STALE (2026-09-07) — not in new dump, unused in this codebase, COLLIDES with item_held_entity_direct
+    # --- Item (game update 2026-09-11) ---
+    # This build's dump.cs types every field below (Item = obfuscated
+    # %d9ebcde8..., TypeDefIndex 2259) and the UC "P" dump names them; they
+    # agree everywhere they overlap. The two EntityRef-typed fields are 0x10
+    # and 0x78 -- P names 0x10 heldEntity and 0x78 worldEnt, and martin's
+    # export and the user's header both also say heldEntity=0x10. Still, a
+    # wrong held-entity offset has no self-check (it validates as "some
+    # pointer"), so recoil_engine keeps probing it live against
+    # RecoilProperties instead of trusting this constant blindly.
+    item_definition     = 0x60   # ItemDefinition-typed; export.h + P + header agree (was 0x70)
+    item_contents       = 0x38   # ItemContainer-typed #1; P contents (was 0x48). Unused.
+    item_parent_container = 0xC8 # ItemContainer-typed #2 (was 0x68). Unused.
+    item_uid            = 0x88   # ItemId struct; P + header uid (was 0x80)
+    item_heldEntity     = 0x10   # EntityRef #1; P + export.h + header (was STALE 0x80)
+    item_held_entity_direct = 0x10  # same field, kept as an alias. Unused.
+    item_worldEnt       = 0x78   # EntityRef #2; P worldEnt (was STALE 0xB8). Unused.
+    # amount: public int at 0x40 (P amount, martin's "possible amount #1").
+    # The other public int, 0x70, is P's `position` (the slot index -- an
+    # int; the user's header calling 0x70 amount / 0xD0 position doesn't fit
+    # dump.cs, where 0xD0 is a float). The previous build's 0xA0 was
+    # disproven live (clothes showed xN counts), so this needs the same live
+    # check before the stack-count HUD is wired again.
+    item_amount         = 0x40   # UNVERIFIED LIVE -- unused
+    item_position       = 0x70   # int slot index (P). Unused.
+    item_condition      = 0xE0   # private float (P _condition). Unused.
+    item_max_condition  = 0x44   # private float (P _maxCondition). Unused.
+    item_clientAmmoCount = 0x2C  # Nullable<int> (P clientAmmoCount). Unused.
 
     # --- ItemDefinition (cross-checked against dump.cs TypeDefIndex 8552,
     # line 1206673 -- clean, non-obfuscated field names) ---
     itemdef_shortName       = 0x28  # dump.cs: `public string shortname` -- confirmed
     itemdef_displayName     = 0x40  # dump.cs: `public Phrase displayName` -- confirmed
+    itemdef_stackable       = 0x78  # dump.cs: `public int stackable` -- max stack size, the belt HUD's amount sanity ceiling
     # itemdef_displayEnglish is UNUSED anywhere in this codebase (dead constant).
     # 0x20 in dump.cs is `public int itemid`, not a string -- definitely wrong
     # if ever read directly. Left as-is since nothing dereferences it; flag
@@ -1210,71 +1179,25 @@ class OFF:
     itemdef_displayEnglish  = 0x20  # UNUSED -- dump.cs says 0x20 is `itemid` (int), NOT a name field
     # dump.cs line 1206729: `private ItemModWearable ... // 0x168` -- this IS
     # the real field. 0x178 (previous value) is an unrelated obfuscated type.
-    itemdef_itemModWearable = 0x1A0 # dump 2026-09-08 (was 0x168)
+    itemdef_itemModWearable = 0x1B0 # game update 2026-09-11: export.h + UC 'P' (was 0x1A0)
 
-    # --- Inventory (cross-checked against dump.cs TypeDefIndex 4636,
-    # line 659966 -- the actual PlayerInventory field listing) ---
-    # dump.cs shows exactly THREE fields of the identical ItemContainer type
-    # (%d0bd7af15077344f2326e90024a578bfc7b0c5de) at 0x28/0x58/0x78, with
-    # unrelated types at everything in between (0x38=Action<float,bool>,
-    # 0x48=PlayerLoot, 0x50=float, 0x54=bool). dump.cs's field TYPES confirm
-    # WHICH offsets hold a container, but not WHICH slot is wear/belt/main --
-    # that ordering can only be told apart by content, live. The previous
-    # wear=0x28/belt=0x58/main=0x78 assignment was live-verified wrong (2026-09-05
-    # screenshot: "CLOTHING/ARMOR" showed weapons/tools, "MAIN INVENTORY"
-    # showed a hat/gloves/boots/backpack) -- a 3-way rotation, not a 2-way
-    # swap: whatever was read as wear was actually belt's content, what was
-    # read as belt was actually main's, what was read as main was actually
-    # wear's. Rotating the offset assignment to match:
-    # REVERTED 2026-09-09. Two live-injected tools (rust-dumper-post 09-08,
-    # NeoRed SDK v6 09-09) each proposed a DIFFERENT full 3-way rotation of
-    # these three roles, and applying the second one made the whole
-    # inventory panel disappear -- not just miscategorized, gone. Root
-    # cause: max_len in _read_held_items_batch is keyed off the ctype label
-    # (36 for "main", 12 for anything else) as a sanity cap, not a role
-    # check. Whichever position actually holds the big (>12 item) main
-    # inventory needs the label "main" or its contents get silently
-    # rejected by that cap and the container vanishes from container_slots
-    # entirely. NeoRed's rotation moved "main" off of 0x60 onto 0x78, and
-    # 0x60 is evidently the one that actually holds >12 items live, so
-    # everything there got capped out and disappeared.
-    # This is back to the original 2026-09-05 screenshot-verified mapping,
-    # which was already correct before either tool's rotation was applied --
-    # the held-items/no-recoil bug both sessions were chasing was entirely
-    # explained by item_heldEntity (0x38 -> 0xB8, see above), not by this.
-    # Do not rotate these three again without a live screenshot confirming
-    # which slot actually holds >12 items.
-    #
-    # Game update 2026-09-10: dump.cs's fresh field list for PlayerInventory
-    # shows the three ItemContainer-typed fields at 0x30/0x60/0x78 (previously
-    # 0x28/0x60/0x78). The FIRST attempt here assumed the same guess that
-    # burned this exact area before -- "position in declaration order maps
-    # to the same role across an update" -- and reassigned only 0x28->0x30
-    # to belt, leaving wear=0x60/main=0x78 as they were. That was WRONG: the
-    # user immediately saw wear-type items (clothes) rendered under the belt
-    # label in-game. Swapped 0x30<->0x60 below on that live signal, exactly
-    # the kind of confirmation this file's own history says to trust over
-    # any dump-based reasoning (see the "do not rotate... without a live
-    # screenshot" warning above -- this update's role assignment needed
-    # that live check after all, the dump's numeric shift was not enough by
-    # itself). main (0x78) is untouched -- not reported wrong.
-    # Two independent live reports, combined directly rather than re-guessed:
-    #   1st report: what was labelled "belt" (0x30) showed clothes -> 0x30 IS
-    #      wear. (Confirmed, never re-reported wrong after this.)
-    #   2nd report: after fixing that (belt=0x60, main=0x78), belt and main
-    #      came back inverted -> 0x60 is actually main, 0x78 is actually belt.
-    # Combining both: wear=0x30, main=0x60, belt=0x78. Do not re-derive this
-    # from the dump.cs field-order reasoning again -- that reasoning produced
-    # BOTH wrong guesses above; only the live reports settled it.
-    container_wear      = 0x30   # confirmed by live feedback 2026-09-10
-    container_belt      = 0x78   # confirmed by live feedback 2026-09-10 (2nd correction)
-    container_main      = 0x60   # confirmed by live feedback 2026-09-10 (2nd correction)
-    # ItemContainer.list: dump.cs (fresh TypeDefIndex 2783) shows exactly one
-    # `List<Item>`-typed field on ItemContainer, at 0x48 -- unambiguous by
-    # type, the same kind of positive ID rust-dumper-post used pre-update.
-    # Both the header's 0x40 guess (that offset is actually `int capacity`
-    # per dump.cs) and the pre-update 0x78 are wrong for this build.
-    item_list           = 0x48   # game update 2026-09-10 (was 0x78). List<Item>-typed field, unambiguous in dump.cs.
+    # --- PlayerInventory / ItemContainer (game update 2026-09-11) ---
+    # dump.cs: PlayerInventory has exactly three ItemContainer-typed fields,
+    # at 0x28/0x60/0x78 (was 0x30/0x60/0x78). dump.cs cannot say which is
+    # which role. The UC "P" dump AND the user's second header both name
+    # belt=0x28, main=0x60, wear=0x78 -- followed here. This area has been
+    # mislabelled twice before by dump reasoning alone (see git history of
+    # this block), so the ROLES still need one live look: belt should show
+    # weapons/tools, wear clothes, main the backpack ([HELD-DBG] sizes: main
+    # should have the biggest max). main is 0x60 in every hypothesis, so the
+    # 36-slot cap in _read_held_items_batch can't swallow the big container
+    # even if belt/wear turn out swapped.
+    container_belt      = 0x28   # P + header (roles UNVERIFIED LIVE)
+    container_main      = 0x60   # P + header
+    container_wear      = 0x78   # P + header (roles UNVERIFIED LIVE)
+    # ItemContainer: the single List<Item>-typed field is at 0x38 (dump.cs;
+    # P + header agree). martin's export says 0x20 -- that is an int.
+    item_list           = 0x38   # game update 2026-09-11 (was 0x48)
 
     # --- BaseEntity ---
     # 0x1B8 matches offsets_decrypts_export.h generated same-day from THIS
@@ -1328,7 +1251,7 @@ class OFF:
     pm_is_local_player  = 0xC4   # bool: this PlayerModel belongs to the local player (dump.cs: Nullable<bool> at 0xC4)
     # dump.cs TypeDefIndex 5635 line 795907: `private SkinnedMultiMesh ... // 0x398`
     # -- confirms offsets_decrypts_export.h's PlayerModel.SkinnedMultiMesh=0x398.
-    pm_multiMesh        = 0x3A8  # dump 2026-09-08 (was 0x398)
+    pm_multiMesh        = 0x488  # game update 2026-09-11: export.h + UC 'P' _multiMesh (was 0x3A8)
 
     # --- SkinnedMultiMesh & Renderers (Chams) ---
     smm_rendererList       = 0x58   # dump 2026-09-08 (was 0x50)
@@ -1354,7 +1277,7 @@ class OFF:
         "GreenEmissive":    174384,
     }
     # 0x3B8 (previous value) is `private SoundDefinition` in dump.cs -- wrong type entirely.
-    pm_skin_renderers   = 0x3A8  # dump 2026-09-08 (was 0x398)
+    pm_skin_renderers   = 0x488  # same field as pm_multiMesh (was 0x3A8)
 
     # --- PlayerEyes (confirmed by fresh dump 2026-09-07) ---
     viewOffset          = 0x40   # confirmed
@@ -1400,7 +1323,7 @@ class OFF:
     bp_projectile_velocity_scale = 0x394
 
     # --- MainCamera (dump 2026-09-08) ---
-    mainCamera          = 0x8    # dump 2026-09-08: instance=0x8 (was 0x28)
+    mainCamera          = 0x28   # game update 2026-09-11: export.h + dumper log 'Camera chain: [+0xb8] -> [+0x28] -> [+0x10]' (was 0x8)
     mainCameraTransform = 0x8    # dump 2026-09-08 (was 0x28, currently unused)
 
     # --- UnityEngine.Camera (native) ---
@@ -1473,47 +1396,48 @@ def _hv_decrypt(hv_value, ops):
 
 
 def decrypt_bn0(hv_value):
-    # Game update 2026-09-10. offsets_decrypts_export.h's own auto-generated
-    # client_entities()/entity_list() came out with EMPTY loop bodies this
-    # run (DecrypterGen failed to decode them post-update); the user supplied
-    # the real chain separately as base_networkable_0(), decoded from the
-    # same a1+0x18 read. Verified bit-exact against a literal transcription
-    # of that disassembly over 2000+ random 64-bit inputs. XOR/SUB/XOR chain.
-    return _hv_decrypt(hv_value, [('xor', 0xCC2B1C5C), ('sub', 0x196BCA9E), ('xor', 0x1A846030)])
+    # Game update 2026-09-11 -- BaseNetworkable static -> client realm
+    # (Basnetworkable_Decryption in the user's header). martin's export came
+    # out with EMPTY loop bodies again this run. XOR/ADD/ROL(10)/ADD, checked
+    # bit-exact against a literal transcription over 2000 random inputs.
+    return _hv_decrypt(hv_value, [('xor', 0x6B59DCD4), ('add', 0x12F287EE), ('rol', 10), ('add', 0x2AD5742A)])
 
 
 def decrypt_bn1(hv_value):
-    # Game update 2026-09-10 (see decrypt_bn0 above; this is
-    # base_networkable_1(), the other broken auto-export). XOR/ROL(8)/XOR/ADD.
-    return _hv_decrypt(hv_value, [('xor', 0x2573BC7C), ('rol', 8), ('xor', 0xB2F825D8), ('add', 0x617F688B)])
+    # Game update 2026-09-11 -- realm -> entity list (EntityList_Decryption).
+    # ROL(26)/XOR/ADD, checked bit-exact (2000 random inputs).
+    return _hv_decrypt(hv_value, [('rol', 26), ('xor', 0xADA5634C), ('add', 0x1BFFF7A6)])
 
 
 def decrypt_local_player(hv_value):
-    # Dump 2026-09-07 (local_player): XOR/ADD/XOR/ROL
-    return _hv_decrypt(hv_value, [('xor', 0xF63B094C), ('add', 0x2C3FFE20), ('xor', 0xF46A1867), ('rol', 14)])
+    # Game update 2026-09-11: LocalPlayer's static Entity HiddenValue uses the
+    # SAME chain as the BaseNetworkable realm -- read off a UC poster's IDA
+    # output of the game's own GetLocalPlayer, and checked equal to
+    # decrypt_bn0 over 2000 random inputs.
+    return decrypt_bn0(hv_value)
 
 
 def decrypt_player_inventory(hv_value):
-    # Game update 2026-09-10: offsets_decrypts_export.h's player_inventory_decrypt,
-    # auto-generated (unlike the previous chain, which its own poster flagged
-    # as Ghidra-derived and untested -- this run's export has a real, non-empty
-    # loop body). ROL(19)/ADD/XOR. Verified bit-exact against a literal
-    # transcription of the exported disassembly over 2000+ random inputs.
-    return _hv_decrypt(hv_value, [('rol', 19), ('add', 0x2E7609BD), ('xor', 0x2C9CD73D)])
+    # Game update 2026-09-11. martin's dumper FAILED on this chain ("Failed
+    # to resolve PlayerInventory decrypt from 15 candidate(s)"); this is a UC
+    # poster's (pivoed) chain, which he says he did not test. Transcription
+    # checked bit-exact; the chain itself is only proven once held items /
+    # the belt HUD resolve in-game. ROL(28)/XOR/ADD.
+    return _hv_decrypt(hv_value, [('rol', 28), ('xor', 0x65B9B225), ('add', 0x2F961B1E)])
 
 
 def decrypt_player_eyes(hv_value):
-    # Game update 2026-09-10 (offsets_decrypts_export.h, player_eyes_decrypt).
-    # ROL(13)/ADD/ROL(31)/SUB -- replaces the 2026-09-08 ROL/ADD/ROL/ADD chain.
-    return _hv_decrypt(hv_value, [('rol', 13), ('add', 0x7CD29FA9), ('rol', 31), ('sub', 0x6A7D41C2)])
+    # Game update 2026-09-11. Same provenance and caveat as
+    # decrypt_player_inventory (dumper failed, pivoed's untested chain).
+    # ADD/ROL(15)/XOR/ROL(6).
+    return _hv_decrypt(hv_value, [('add', 0xC4421DB7), ('rol', 15), ('xor', 0x8F17AD9A), ('rol', 6)])
 
 
 def decrypt_cl_active_item(value):
-    # Game update 2026-09-10 (offsets_decrypts_export.h, cl_active_item).
-    # ROL(9)/XOR/ROL(10)/SUB -- replaces the 2026-09-08 ROL/XOR/ROL chain
-    # (gained a trailing SUB). Note this decrypts the raw handle VALUE
-    # directly (no memory read), matching this function's existing signature.
-    return _hv_decrypt(value, [('rol', 9), ('xor', 0xBC12F754), ('rol', 10), ('sub', 0x2D51B831)])
+    # Game update 2026-09-11: martin's export (complete this time), the
+    # user's header and two UC posts all give the same chain.
+    # SUB/XOR/ROL(19)/ADD. Decrypts the raw value directly (no handle).
+    return _hv_decrypt(value, [('sub', 0x3D5E8E09), ('xor', 0x2294A40F), ('rol', 19), ('add', 0x62310A3F)])
 
 
 def _read_hv_handle(m, wrapper, attempts=3):
@@ -2779,7 +2703,7 @@ HELD_ITEM_DIAG_INTERVAL = 5.0
 # non-empty but never says for how many players, which is the number that
 # matters once the offsets are right.
 HELD_ITEM_OK_INTERVAL = 30.0
-PLAYER_NAME_SCAN_INTERVAL = 1.0  # scan for new player names every second
+PLAYER_NAME_SCAN_INTERVAL = 0.5  # only reads players with no name yet, so cheap
 
 # Bone layout for the current player rig, confirmed 2026-08-21 by reading
 # Model.boneNames (offset OFF.boneNames, parallel array to boneTransforms)
@@ -2834,6 +2758,144 @@ SCI_BONE_LINKS = (
     (16, 17),
 )
 SCI_MIN_ARRAY_COUNT = max(SCI_BONE_IDS) + 1
+
+
+KLASS_NAME_OFF = 0x10
+
+# Every human-shaped NPCPlayer subclass in the current dump.cs (TypeDefIndex
+# 2876 NPCPlayer, and everything under it). These are dump.cs *class names*,
+# not per-build offsets or prefab hashes -- stable across updates the way
+# k_player_prefab_id is not, and a name missing from this set just stays
+# unclassified (never mis-shown as a real player), so an update adding a new
+# NPCPlayer subtype degrades safely instead of silently breaking.
+NPC_PLAYER_KLASS_NAMES = frozenset({
+    "NPCPlayer", "HumanNPC", "BasePet", "ScarecrowNPC", "NPCShopKeeper",
+})
+
+
+def _read_klass_names_batched(mem, klass_ptrs):
+    """{klass_ptr: name} for every valid, distinct pointer in klass_ptrs.
+
+    Exactly two batch_u64 calls no matter how many pointers are passed --
+    never a per-pointer read (ARCHITECTURE.md 3.3). 16 bytes covers every
+    class name this file checks ("NPCShopKeeper\\0" is 15 bytes).
+    """
+    uniq = [k for k in dict.fromkeys(klass_ptrs) if _valid_user_ptr(k)]
+    if not uniq:
+        return {}
+    name_ptrs = mem.batch_u64(
+        [k + KLASS_NAME_OFF for k in uniq], attempts=1
+    ) or []
+    pairs = [(k, p) for k, p in zip(uniq, name_ptrs) if _valid_user_ptr(p)]
+    if not pairs:
+        return {}
+    addrs = []
+    for _, p in pairs:
+        addrs.append(p)
+        addrs.append(p + 8)
+    words = mem.batch_u64(addrs, attempts=1) or []
+    out = {}
+    for i, (k, _p) in enumerate(pairs):
+        w0 = words[2 * i] if 2 * i < len(words) else 0
+        w1 = words[2 * i + 1] if 2 * i + 1 < len(words) else 0
+        raw = w0.to_bytes(8, "little") + w1.to_bytes(8, "little")
+        end = raw.find(b"\x00")
+        name = (raw[:end] if end >= 0 else raw).decode("ascii", "ignore")
+        if name:
+            out[k] = name
+    return out
+
+
+class NpcClassifier:
+    """Tells real players (BasePlayer instances) from NPCs.
+
+    Every NPC type in the game -- scientists, murderers/zombies, bandit
+    camp NPCs, scarecrows, pets, shopkeepers -- derives from
+    `NPCPlayer : BasePlayer` (dump.cs TypeDefIndex 2876; HumanNPC/BasePet/
+    ScarecrowNPC/NPCShopKeeper all derive from THAT, not from BasePlayer
+    directly). A real, human player's object is a plain `BasePlayer`
+    instance, never a subclass. So instead of matching prefab names or
+    hardcoding a subclass list that needs updating every time Facepunch
+    adds a new NPC type, this checks the one thing that's already true for
+    every current and future one: the object's own klass name is anything
+    OTHER than the literal string "BasePlayer".
+
+    This is why NPCs used to slip through as half-broken players --
+    NPCPlayer inherits every mechanism (prefab-hash entity walk,
+    ListComponent<PlayerModel> registry, the pm/bp mapping) a real player
+    uses, so nothing in the existing pipeline had a reason to tell them
+    apart; a name could resolve (BasePlayer._displayName exists on NPCs
+    too, often blank or a scientist's line) while bones/hp came and went
+    depending on whichever fields THAT NPC subtype happens to populate.
+
+    The check itself is IL2CPP ABI, not game code: `object+0x0` is always
+    `Il2CppObject.klass`, and `klass+0x10` is always `Il2CppClass.name` --
+    the exact same KLASS_NAME_OFF auto_offsets.py already uses for class
+    globals, just walked from an instance instead of a static slot. Both
+    are "stable across patches" per OFFSET_RECOVERY.md section 1, so this
+    needs no per-build re-derivation.
+
+    A bp's class never changes for its lifetime, so this is a pure
+    grow-only cache -- classify once per bp, never recheck.
+    """
+
+    KLASS_NAME_OFF = KLASS_NAME_OFF
+
+    def __init__(self, memory):
+        self.m = memory   # matches RustGame's own convention (self.m, not self.mem)
+        self._cache = {}       # bp -> bool (True == NPC)
+        self.last_status = "not run yet"
+        self.last_detail = []  # [(bp, klass_ptr, name), ...] for the last classify() call
+
+    def classify(self, bp_ptrs):
+        """Classify every not-yet-cached bp in `bp_ptrs`. Cheap to call
+        every tick with the full current set -- already-cached bp's cost
+        nothing, and this is the only thing that ever populates the cache.
+        """
+        todo = [
+            bp for bp in set(bp_ptrs)
+            if bp not in self._cache and _valid_user_ptr(bp)
+        ]
+        if not todo:
+            return
+
+        self.last_detail = []
+        klass_ptrs = self.m.batch_u64(todo, attempts=1) or []
+        klass_by_bp = dict(zip(todo, klass_ptrs))
+        # Both this batch and the name-string batch inside the helper are
+        # fully batched (ARCHITECTURE.md 3.3) -- no per-bp or per-klass
+        # round trip, however many bp's are new.
+        names = _read_klass_names_batched(self.m, klass_by_bp.values())
+
+        checked = npcs = 0
+        # Per-bp detail (bp, klass, name), not just the aggregate count --
+        # every new bp goes through this exactly ONCE (grow-only cache), so
+        # logging each one here is naturally bounded, not spam. This is
+        # what actually answers "is the klass pointer suspiciously the same
+        # for everyone" vs "the pointer differs but the string read is
+        # wrong" the first time this doesn't match reality, instead of a
+        # second round of "add more logging" after the fact.
+        for bp in todo:
+            klass = klass_by_bp.get(bp, 0)
+            if not _valid_user_ptr(klass):
+                self.last_detail.append((bp, klass, "<invalid klass ptr>"))
+                continue
+            name = names.get(klass)
+            if not name:
+                self.last_detail.append((bp, klass, "<bad name ptr or read failed>"))
+                continue
+            is_npc = name != "BasePlayer"
+            self._cache[bp] = is_npc
+            checked += 1
+            npcs += is_npc
+            self.last_detail.append((bp, klass_by_bp.get(bp, 0), name))
+        self.last_status = (
+            f"classified {checked} new bp (of {len(todo)} attempted), "
+            f"{npcs} NPC -- {len(self._cache)} cached total"
+        )
+
+    def is_npc(self, bp):
+        return self._cache.get(bp, False)
 
 
 class RustGame:
@@ -2956,11 +3018,18 @@ class RustGame:
         self._entity_ptr_cache_at = 0.0
         self._entity_chain_at = 0.0
         self._entity_prefab_cache = {}
+        # bp -> bool (True == klass name is in NPC_PLAYER_KLASS_NAMES). Same
+        # grow-only-with-rotating-revalidation shape as _entity_prefab_cache,
+        # populated alongside it in _entity_baseplayers_locked -- see there
+        # for why real players alone don't cover the candidate pool.
+        self._entity_npc_klass_cache = {}
         self._entity_prefab_cursor = 0
         # Set by _entity_baseplayers_locked every call; read by
         # [PM2BP-STUCK] so "live_bps=27" comes with WHY it's 27 instead of
         # needing a second investigation the next time it looks too low.
         self._entity_bp_diag = "not run yet"
+        self._npc_classifier = NpcClassifier(self.m)
+        self._next_npc_debug_at = 0.0
         self._player_model_offset = OFF.playerModel
         self._last_bp_source = "none"
         # A pm's consecutive _resolve_pm_to_bp miss count -- see
@@ -4354,9 +4423,39 @@ class RustGame:
                     if short_name:
                         name_cache[itemdef_by_idx[idx]] = short_name
 
+        # Stack count + condition for the game-style belt HUD. Item.amount
+        # (int) and Item._maxCondition / _condition (float) come from the UC
+        # "P" dump + dump.cs field types but are UNVERIFIED LIVE (the previous
+        # build's amount offset was wrong), so a value is only kept when it
+        # passes a plausibility gate: amount within the item type's own
+        # ItemDefinition.stackable ceiling, condition within [0, max].
+        extra_addrs = []
+        for _, _, _, ptr in stage3:
+            extra_addrs += [ptr + OFF.item_amount, ptr + OFF.item_max_condition, ptr + OFF.item_condition]
+        extra_vals = m.batch_u64(extra_addrs, attempts=1) or []
+        stack_cache = getattr(self, "_itemdef_stack_cache", None)
+        if stack_cache is None:
+            stack_cache = self._itemdef_stack_cache = {}
+        cold_stack = list({itemdef for _, itemdef, _, _ in stage3 if itemdef not in stack_cache})
+        if cold_stack:
+            stack_words = m.batch_u64([d + OFF.itemdef_stackable for d in cold_stack], attempts=1) or []
+            for itemdef, word in zip(cold_stack, stack_words):
+                stack_cache[itemdef] = struct.unpack("<i", struct.pack("<I", word & 0xFFFFFFFF))[0]
+        slot_extras = {}
+        for i, (_, itemdef, _, ptr) in enumerate(stage3):
+            if 3 * i + 2 >= len(extra_vals):
+                break
+            amount = struct.unpack("<i", struct.pack("<I", extra_vals[3 * i] & 0xFFFFFFFF))[0]
+            max_cond = struct.unpack("<f", struct.pack("<I", extra_vals[3 * i + 1] & 0xFFFFFFFF))[0]
+            cond = struct.unpack("<f", struct.pack("<I", extra_vals[3 * i + 2] & 0xFFFFFFFF))[0]
+            stackable = stack_cache.get(itemdef, 0)
+            amount = amount if 0 < stackable <= 1000000 and 1 <= amount <= stackable else None
+            ratio = cond / max_cond if 0.0 < max_cond <= 100000.0 and 0.0 <= cond <= max_cond * 1.001 else None
+            slot_extras[ptr] = (amount, None if ratio is None else min(ratio, 1.0))
+
         all_pms = set(owner[0] for owner, _, _, _ in stage3)
         belt_results = {pm: [None] * 6 for pm in all_pms}
-        wear_results = {pm: [None] * 6 for pm in all_pms}
+        wear_results = {pm: [None] * 7 for pm in all_pms}  # Rust has 7 clothing slots
         main_results = {pm: [None] * 30 for pm in all_pms}
         held_results = {}
 
@@ -4365,10 +4464,10 @@ class RustGame:
             cached_name = name_cache.get(itemdef)
             if cached_name:
                 disp_name = ITEM_DISPLAY_NAMES.get(cached_name, cached_name)
-                item_info = (cached_name, disp_name)
+                item_info = (cached_name, disp_name) + slot_extras.get(ptr, (None, None))
                 if ctype == 'belt' and 0 <= slot_i < 6:
                     belt_results[pm][slot_i] = item_info
-                elif ctype == 'wear' and 0 <= slot_i < 6:
+                elif ctype == 'wear' and 0 <= slot_i < 7:
                     wear_results[pm][slot_i] = item_info
                 elif ctype == 'main' and 0 <= slot_i < 30:
                     main_results[pm][slot_i] = item_info
@@ -4499,7 +4598,7 @@ class RustGame:
         # "only evict when nothing is missing" branch rarely ran at all.
         # Reported live: bots showing real player names, or a player's fake
         # name only flipping to their real one "after a while". Now bounded
-        # to at most PLAYER_NAME_SCAN_INTERVAL (1s) staleness in every case.
+        # to at most PLAYER_NAME_SCAN_INTERVAL (0.5s) staleness in every case.
         active = set(pm_to_bp)
         stale = {
             pm for pm in self._player_name_cache
@@ -6779,7 +6878,41 @@ class RustGame:
                 if prefab:
                     cache[q] = prefab
 
+        # NPCPlayer/HumanNPC/etc. run through the exact same
+        # ListComponent<PlayerModel> registry and pm<->bp pipeline as real
+        # players (they inherit BasePlayer's layout), but never carry
+        # k_player_prefab_id -- so the prefab filter above silently dropped
+        # every NPC from the candidate pool before pm/bp mapping ever saw
+        # them. Confirmed live 2026-09-10: [NPC-DBG] classified 16/16
+        # pm-mapped bp's and every one read klass='BasePlayer' -- none of
+        # them were ever an NPC to begin with, because none had reached this
+        # far. Reuse the SAME cache/rotating-window shape as the prefab
+        # cache above (same `stale` list -- already "new or due for
+        # revalidation") to also klass-check whichever of those didn't
+        # already resolve to a human -- checking name-vs-BasePlayer on the
+        # FULL unfiltered buffer would misclassify every prop/tree/rock too,
+        # so this only ever runs on entities the prefab check didn't clear.
+        # getattr, not self._entity_npc_klass_cache directly: tests build
+        # RustGame via object.__new__ and only exercise __init__'s fields on
+        # whichever branch already assumes them (see [[rust-esp-tests-bypass-init]]).
+        npc_cache = getattr(self, "_entity_npc_klass_cache", {})
+        if len(npc_cache) > len(live):
+            npc_cache = {q: v for q, v in npc_cache.items() if q in live}
+            self._entity_npc_klass_cache = npc_cache
+        npc_candidates = [
+            q for q in stale if cache.get(q) != OFF.k_player_prefab_id
+        ]
+        if npc_candidates:
+            klass_ptrs = self.m.batch_u64(npc_candidates, attempts=1) or []
+            klass_by_q = dict(zip(npc_candidates, klass_ptrs))
+            names = _read_klass_names_batched(self.m, klass_by_q.values())
+            for q in npc_candidates:
+                name = names.get(klass_by_q.get(q, 0))
+                if name:
+                    npc_cache[q] = name in NPC_PLAYER_KLASS_NAMES
+
         players = [q for q in ptrs if cache.get(q) == OFF.k_player_prefab_id]
+        npcs = [q for q in ptrs if npc_cache.get(q)]
         # Diagnostic for [PM2BP-STUCK] (see OFF.k_player_prefab_id -- that
         # hash is independently confirmed correct, 2026-09-10, against a
         # public StringPool reference for assets/prefabs/player/player.prefab
@@ -6788,12 +6921,14 @@ class RustGame:
         uncached = sum(1 for q in ptrs if q not in cache)
         self._entity_bp_diag = (
             f"raw_count={raw_count} ptrs={len(ptrs)} players={len(players)} "
+            f"npcs={len(npcs)} "
             f"uncached_prefab={uncached} "
             f"fallback={'YES (0 players matched)' if not players else 'no'}"
         )
         # If the prefab hash ever changes, retain the structurally safe fallback
         # instead of making every PlayerModel mapping disappear.
-        return players or ptrs
+        candidates = players + npcs
+        return candidates or ptrs
 
     def _map_baseplayers_to_pm(self, bp_ptrs, pm_set):
         if not bp_ptrs or not pm_set:
@@ -7539,6 +7674,26 @@ class RustGame:
         # could not see. Count it here, before the branch.
         bone_age_expired = 0
         bone_age_expired_max = 0.0
+
+        # One batched pass classifies every not-yet-known bp (see
+        # NpcClassifier -- already-cached ones cost nothing), before the
+        # per-player loop below needs the answer.
+        self._npc_classifier.classify(pm_to_bp.values())
+        now_npc = time.perf_counter()
+        if now_npc >= self._next_npc_debug_at:
+            self._next_npc_debug_at = now_npc + 5.0
+            print(f"[NPC-DBG] {self._npc_classifier.last_status}", flush=True)
+            # Per-bp detail for whatever was newly classified THIS call --
+            # answers directly whether the klass pointer looks wrong (e.g.
+            # suspiciously identical across bp's) or the pointer is fine
+            # and the name string is what's wrong, instead of guessing from
+            # the aggregate count alone.
+            for bp, klass, name in self._npc_classifier.last_detail:
+                print(
+                    f"[NPC-DBG]   bp=0x{bp:X} klass=0x{klass:X} name={name!r}",
+                    flush=True,
+                )
+
         display_players = []
         for pm_key, pos in pm_pos_cache.items():
             hp = max_hp = -1.0
@@ -7610,6 +7765,13 @@ class RustGame:
                 # 'vel' comment on the new_players append above. Needed here
                 # too for aim_engine's projectile lead (bows/crossbow/nailgun).
                 'vel': self._pm_vel_cache.get(pm_key),
+                # Scientist/zombie/bandit/scarecrow/pet/shopkeeper -- see
+                # NpcClassifier. False (not an NPC) when bp is still
+                # unresolved: fails open the same direction as everything
+                # else here, since an unresolved bp is already handled
+                # elsewhere (no name/held-item/etc. either) and defaulting
+                # to "not an NPC" doesn't hide a real player from the ESP.
+                'is_npc': self._npc_classifier.is_npc(pm_to_bp.get(pm_key, 0)),
             })
 
         with self._lock:

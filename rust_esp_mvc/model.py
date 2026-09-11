@@ -426,8 +426,15 @@ class RustGameModel(legacy.RustGame):
                 self._bp_mapping_backoff * 2, BP_MAPPING_MAX_BACKOFF
             )
             self._next_bp_mapping_at = now + self._bp_mapping_backoff
+            self._start_bp_resolution(None)
             return
         elif now < self._next_bp_mapping_at:
+            # Names/held items/world entities live on the slow lane, which
+            # only ever ran as a tail of a bp resolution while any player was
+            # unmapped. One unresolvable player (sleeper, out-of-buffer) kept
+            # the backoff at up to 30 s -- and every name and inventory waited
+            # that long. Run the slow lane on its own meanwhile.
+            self._start_bp_resolution(None)
             return
 
         # The floor guards the *spawn*, not one branch of the decision above.
@@ -438,6 +445,12 @@ class RustGameModel(legacy.RustGame):
         # The walk costs ~620 ms of driver time; nothing may start one more
         # often than this, whatever the reason.
         if now < self._next_bp_fresh_at:
+            self._start_bp_resolution(None)
+            return
+        # A slow-lane-only pass may still be running (see above). Starting now
+        # would silently no-op after the attempt was already recorded, turning
+        # a first attempt into a backed-off retry -- wait for the next tick.
+        if self._bp_worker is not None and self._bp_worker.is_alive():
             return
         self._next_bp_fresh_at = now + BP_MAPPING_MIN_INTERVAL
         for pm in missing:
@@ -560,9 +573,27 @@ class RustGameModel(legacy.RustGame):
                 pm_to_bp, on_worker=True)),
             ("WE", lambda: self._scan_world_entities(on_worker=True)),
         )
-        index = self._slow_lane_cursor % len(scans)
-        self._slow_lane_cursor = index + 1
-        tag, run = scans[index]
+        now = time.perf_counter()
+        names = getattr(self, "_player_name_cache", None) or {}
+        if (any(pm not in names for pm in pm_to_bp)
+                and self._slow_lane_due("NAME", now)):
+            # A player with no name yet is the most visible gap on screen and
+            # the scan only reads the missing ones (~3 IOCTLs), so it does not
+            # wait for its turn in the rotation.
+            tag, run = scans[1]
+        else:
+            # First scan in rotation whose own interval has elapsed. Blindly
+            # taking the cursor's scan spent whole passes on scans that return
+            # at once ("not due yet") while another one was waiting.
+            start = self._slow_lane_cursor % len(scans)
+            index = start
+            for step in range(len(scans)):
+                i = (start + step) % len(scans)
+                if self._slow_lane_due(scans[i][0], now):
+                    index = i
+                    break
+            self._slow_lane_cursor = index + 1
+            tag, run = scans[index]
         try:
             run()
         except Exception as exc:
@@ -573,6 +604,20 @@ class RustGameModel(legacy.RustGame):
             self._slow_lane_last = (
                 calls, (time.perf_counter() - started) * 1000.0
             )
+
+    def _slow_lane_due(self, tag, now):
+        """Would this slow-lane scan do any work if run right now?"""
+        wanted = getattr(self, "wanted", None) or {}
+        if tag == "HELD":
+            return (wanted.get("held_item", True)
+                    and now >= getattr(self, "_next_held_item_scan_at", 0.0))
+        if tag == "NAME":
+            return (wanted.get("names", True)
+                    and now >= getattr(self, "_next_player_name_scan_at", 0.0))
+        if tag == "WE":
+            return (wanted.get("world_entities", True)
+                    and now >= getattr(self, "_next_world_scan_at", 0.0))
+        return True
 
     def _slow_lane_only_worker(self):
         """Everything is mapped; just do the off-tick decoration work."""

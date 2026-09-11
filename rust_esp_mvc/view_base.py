@@ -10,6 +10,28 @@ try:
     import OpenGL.GL as gl
     from imgui_bundle import imgui, imgui_ctx
     from imgui_bundle.python_backends.glfw_backend import GlfwRenderer
+    from imgui_bundle.python_backends import opengl_backend_programmable as _gl_backend
+
+    # imgui_bundle's Python OpenGL backend blends the ALPHA channel with
+    # (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) as well, so anything translucent drawn
+    # over an opaque pixel LOWERS that pixel's alpha (a*a + dst*(1-a)). On
+    # this transparent, DWM-composited overlay that punches holes in the
+    # menu: the aternos rows' fade gradients let the game show through them.
+    # ImGui's own DX11/OpenGL3 backends accumulate alpha separately (ONE,
+    # ONE_MINUS_SRC_ALPHA) -- which is why the C++ demo looked right. Route
+    # the backend's glBlendFunc through glBlendFuncSeparate; pixels nothing
+    # draws keep alpha 0, so the game stays visible around the menu.
+    class _SeparateAlphaGL:
+        def __getattr__(self, name):
+            value = getattr(gl, name)
+            setattr(self, name, value)
+            return value
+
+        @staticmethod
+        def glBlendFunc(src, dst):
+            gl.glBlendFuncSeparate(src, dst, gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA)
+
+    _gl_backend.gl = _SeparateAlphaGL()
 except ImportError as exc:
     GUI_IMPORT_ERROR = exc
     glfw = None
@@ -39,7 +61,16 @@ WORLD_ENTITY_MAX_DIST = {
 COL_HELD_ITEM = 0xFF88CCFF  # Light orange/peach (ABGR)
 COL_NAME = 0xFFFFDD44      # Light cyan/sky blue (ABGR)
 COL_HEALTH_BG = 0xC8000000 # Dark semi-transparent background
-ESP_WINDOW_FLAGS = 0x1 | 0x2 | 0x4 | 0x8 | 0x10 | 0x20 | 0x80
+# NoTitleBar|NoResize|NoMove|NoScrollbar|NoScrollWithMouse|NoCollapse|
+# NoBackground, plus NoMouseInputs|NoFocusOnAppearing|NoBringToFrontOnFocus|
+# NoNavInputs|NoNavFocus: the full-screen ESP canvas must never take the
+# mouse. Without them it sat above the menu (ImGui creates the template's
+# NoBringToFrontOnFocus window at the BACK of the z-order) and swallowed
+# every click.
+ESP_WINDOW_FLAGS = (
+    0x1 | 0x2 | 0x4 | 0x8 | 0x10 | 0x20 | 0x80
+    | 0x200 | 0x1000 | 0x2000 | 0x10000 | 0x20000
+)
 # Confirmed 2026-08-21 via a live Model.boneNames dump — see the matching
 # note on SCI_BONE_IDS/SCI_BONE_LINKS in legacy_runtime.py (OFFSET_RECOVERY.md
 # trap #11). Must stay in sync with those.
@@ -59,6 +90,7 @@ class OverlayDependencyError(RuntimeError):
 GWL_EXSTYLE = -20
 WS_EX_LAYERED = 0x00080000
 WS_EX_TRANSPARENT = 0x00000020
+WS_EX_NOACTIVATE = 0x08000000
 # The overlay's menu key. GetAsyncKeyState only peeks at global key state --
 # it cannot consume the press -- so whatever is chosen here also reaches the
 # game. INSERT is a key Rust does not bind; ESCAPE (0x1B, what this used to
@@ -82,15 +114,21 @@ SKELETON_LINE_SPAN_RATIO = 1.0 / 45.0
 # Floors, so a very distant skeleton stays visible as a mark rather than
 # vanishing, and caps, so a player two metres away does not fill the screen
 # with a 44 px head.
-SKELETON_LINE_MIN_PX = 0.6
-SKELETON_LINE_MAX_PX = 2.1
-SKELETON_HEAD_MIN_PX = 0.7
-SKELETON_HEAD_MAX_PX = 4.6
+#
+# 2026-09-11: caps brought down again to match a reference recording's
+# close-range look (thin wireframe, small head dot, no halo bloom) -- at
+# ~300 px projected height the old caps (2.1/4.6/+0.9) were already maxed
+# out, which is what read as "thick" up close even though far-range sizing
+# (still ratio-driven below) was fine.
+SKELETON_LINE_MIN_PX = 0.5
+SKELETON_LINE_MAX_PX = 1.1
+SKELETON_HEAD_MIN_PX = 0.6
+SKELETON_HEAD_MAX_PX = 2.2
 # The dark halo is *added* to the line rather than being its own scaled
 # value. A multiplicative outline (it used to be 3.0 px against a 1.25 px
 # line) is what turned a distant skeleton into a solid dark smudge: at that
 # size the halo is the only thing left.
-SKELETON_OUTLINE_EXTRA_PX = 0.9
+SKELETON_OUTLINE_EXTRA_PX = 0.4
 # Below this projected height a skeleton stops being a skeleton.
 #
 # Measured off the 2026-08-27 recording, which was made *after* the sizing
@@ -164,6 +202,14 @@ DEFAULT_PALETTE = {
     "we_Bag":         (0.800, 0.400, 1.000, 1.00),
     "we_Crate":       (1.000, 0.600, 0.000, 1.00),
     "we_TC":          (1.000, 0.267, 0.267, 1.00),
+    # Scientist/zombie/bandit/scarecrow/pet/shopkeeper -- see
+    # legacy_runtime.NpcClassifier. A warm amber, deliberately distinct from
+    # both the player cyan and the sleeper gray: this is the colour that
+    # answers "wait, is that a real person?" at a glance.
+    "box_npc":        (1.000, 0.700, 0.100, 1.00),
+    "skeleton_npc":   (1.000, 0.700, 0.100, 1.00),
+    "tracer_npc":     (1.000, 0.700, 0.100, 0.75),
+    "name_npc":       (1.000, 0.780, 0.300, 1.00),
 }
 
 # Grouped for the menu: (section label, ((palette key, display label), ...)).
@@ -180,6 +226,12 @@ PALETTE_GROUPS = (
         ("box_sleeping", "Box"),
         ("tracer_sleeping", "Tracer"),
         ("name_sleeping", "Name"),
+    )),
+    ("NPCs", (
+        ("box_npc", "Box"),
+        ("skeleton_npc", "Skeleton"),
+        ("tracer_npc", "Tracer"),
+        ("name_npc", "Name"),
     )),
     ("World", (
         ("we_Ore", "Ore"),
@@ -213,6 +265,14 @@ class Settings:
         self.full_inventory_key_code = 0xBC  # VK_OEM_COMMA (',')
         self.show_watermark = False
         self.show_world_entities = False
+        # Scientist/zombie/bandit/scarecrow/pet/shopkeeper -- drawn in a
+        # distinct amber (palette "*_npc") instead of the player cyan, so
+        # they read as "not a real person" at a glance instead of showing
+        # up as a player with a name but sometimes no bones/hp (the bug
+        # this setting exists to fix: NPCPlayer inherits every mechanism a
+        # real BasePlayer uses, so nothing used to tell them apart). Off
+        # switches them to fully hidden, same as a teammate filter would.
+        self.show_npcs = True
         # Derive the box from the projected skeleton when one is available.
         # See calculate_bone_box for why this removes the box/skeleton drift.
         self.box_from_bones = True
@@ -266,6 +326,14 @@ class Settings:
         # if the field cannot be read the player counts as an enemy, because
         # silently disabling the aimbot is worse than the odd teammate.
         self.aim_team_check = True
+        # Skip scientists/zombies/bandits/scarecrows/pets/shopkeepers (see
+        # legacy_runtime.NpcClassifier). Fails CLOSED, the opposite
+        # direction from the team check above and deliberately so: an
+        # unclassified bp (is_npc defaults False) is not excluded, which
+        # matches never hiding a real player over an NPC read failing --
+        # the ESP still shows them normally either way, this only keeps the
+        # aimbot from locking one of them by mistake.
+        self.aim_exclude_npcs = True
         # Hold this key to freeze the current target -- nothing else in the
         # cone can steal it. 0 = disabled. The scoring above is a heuristic
         # and a heuristic picks wrong sometimes; this is the manual override.
@@ -691,6 +759,38 @@ def _draw_health_bar(draw_list, left, top, bottom, hp, max_hp):
     )
 
 
+HEALTH_BAR_BELOW_HEIGHT = 3.0
+HEALTH_BAR_BELOW_GAP = 3.0
+
+
+def _health_bar_below_width(left, right):
+    return max(18.0, min(40.0, (right - left) * 0.8))
+
+
+def _draw_health_bar_below(draw_list, center_x, y, width, hp, max_hp):
+    """Small horizontal health bar centred under a player, above the distance.
+
+    Returns the vertical space it used (0 when there is no hp to show), so
+    the caller can stack the distance/held-item text right under it.
+    """
+    if max_hp <= 0.0 or hp < 0.0:
+        return 0.0
+    bar_left = center_x - width * 0.5
+    bar_bottom = y + HEALTH_BAR_BELOW_HEIGHT
+    draw_list.add_rect_filled(
+        (bar_left - 1.0, y - 1.0),
+        (bar_left + width + 1.0, bar_bottom + 1.0),
+        COL_HEALTH_BG,
+    )
+    ratio = max(0.0, min(1.0, hp / max_hp))
+    draw_list.add_rect_filled(
+        (bar_left, y),
+        (bar_left + width * ratio, bar_bottom),
+        _health_color(ratio),
+    )
+    return HEALTH_BAR_BELOW_HEIGHT + HEALTH_BAR_BELOW_GAP
+
+
 def _draw_corner_box(draw_list, left, top, right, bottom, color):
     width = max(0.0, right - left)
     height = max(0.0, bottom - top)
@@ -949,7 +1049,11 @@ class OverlayView:
         Dropped while the menu is open so it can receive mouse input.
         """
         style = self._user32.GetWindowLongW(self._hwnd, GWL_EXSTYLE)
-        style |= WS_EX_LAYERED
+        # Never activate: clicking the menu must not take focus from Rust,
+        # which blacks out in exclusive fullscreen when it loses focus. Mouse
+        # buttons still reach this window; the cursor position is fed in
+        # poll() because the GLFW backend only reports it while focused.
+        style |= WS_EX_LAYERED | WS_EX_NOACTIVATE
         if click_through:
             style |= WS_EX_TRANSPARENT
         else:
@@ -962,6 +1066,14 @@ class OverlayView:
     def poll(self):
         glfw.poll_events()
         self.renderer.process_inputs()
+        if self.menu_open:
+            # The GLFW backend posts (-1, -1) whenever this window is not
+            # focused, and it never is (WS_EX_NOACTIVATE). Queued last, this
+            # global cursor position wins over that.
+            pt = POINT()
+            if self._user32.GetCursorPos(ctypes.byref(pt)):
+                wx, wy = glfw.get_window_pos(self.window)
+                imgui.get_io().add_mouse_pos_event(float(pt.x - wx), float(pt.y - wy))
         # GetAsyncKeyState is a *global* key query — it works no matter which
         # window has focus. glfw.get_key() only reports keys the overlay
         # window itself received, which needs the game to NOT have focus

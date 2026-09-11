@@ -1,0 +1,198 @@
+{
+  "menu": {
+    "accent": [
+      0.48627451062202454,
+      0.40392157435417175,
+      1.0,
+      1.0
+    ],
+    "notify_design": 0
+  },
+  "settings": {
+    "aim_deadzone_deg": 0.15,
+    "aim_debug_prints": false,
+    "aim_distance_bias": 0.5,
+    "aim_dual_write": true,
+    "aim_enabled": true,
+    "aim_exclude_npcs": true,
+    "aim_fov_deg": 6.4,
+    "aim_head_bone_id": 23,
+    "aim_homing_turn_dps": 40.0,
+    "aim_humanize": false,
+    "aim_interval_ms": 10,
+    "aim_jitter_deg": 0.4,
+    "aim_key": 2,
+    "aim_lock_key": 0,
+    "aim_max_distance_m": 300.0,
+    "aim_max_speed_dps": 300.0,
+    "aim_projectile_homing": true,
+    "aim_skip_pct": 0.08,
+    "aim_smooth": 0.05,
+    "aim_sticky_ms": 350,
+    "aim_team_check": true,
+    "box_from_bones": true,
+    "chams_apply_enemies": true,
+    "chams_apply_held": false,
+    "chams_apply_local": false,
+    "chams_enabled": false,
+    "chams_material_id": 116322,
+    "colors": {
+      "accent": [
+        0.0,
+        0.831,
+        1.0,
+        1.0
+      ],
+      "box": [
+        0.2954545454545452,
+        1.0,
+        0.0,
+        1.0
+      ],
+      "box_npc": [
+        1.0,
+        0.7,
+        0.1,
+        1.0
+      ],
+      "box_sleeping": [
+        0.533,
+        0.533,
+        0.533,
+        0.667
+      ],
+      "distance": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "held_item": [
+        1.0,
+        0.0,
+        0.34090909090908994,
+        1.0
+      ],
+      "name": [
+        0.005326704545454551,
+        0.15444536385340432,
+        0.1875,
+        1.0
+      ],
+      "name_npc": [
+        1.0,
+        0.78,
+        0.3,
+        1.0
+      ],
+      "name_sleeping": [
+        0.533,
+        0.533,
+        0.533,
+        0.667
+      ],
+      "skeleton": [
+        0.875,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "skeleton_npc": [
+        1.0,
+        0.7,
+        0.1,
+        1.0
+      ],
+      "tracer": [
+        0.0,
+        0.831,
+        1.0,
+        0.75
+      ],
+      "tracer_npc": [
+        1.0,
+        0.7,
+        0.1,
+        0.75
+      ],
+      "tracer_sleeping": [
+        0.667,
+        0.667,
+        0.667,
+        0.533
+      ],
+      "watermark": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "we_Bag": [
+        0.8,
+        0.4,
+        1.0,
+        1.0
+      ],
+      "we_Crate": [
+        1.0,
+        0.6,
+        0.0,
+        1.0
+      ],
+      "we_Hemp": [
+        0.267,
+        1.0,
+        0.267,
+        1.0
+      ],
+      "we_Item": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "we_Ore": [
+        1.0,
+        0.831,
+        0.0,
+        1.0
+      ],
+      "we_TC": [
+        1.0,
+        0.267,
+        0.267,
+        1.0
+      ]
+    },
+    "extrapolate_skeleton": false,
+    "full_inventory_key_code": 188,
+    "norecoil_enabled": false,
+    "norecoil_x": 0,
+    "norecoil_y": 0,
+    "nosway_enabled": false,
+    "show_boxes": true,
+    "show_distance": true,
+    "show_health": true,
+    "show_held_item": true,
+    "show_name": true,
+    "show_npcs": true,
+    "show_skeleton": true,
+    "show_sleepers": false,
+    "show_target_belt": true,
+    "show_target_fov": false,
+    "show_tracers": false,
+    "show_watermark": false,
+    "show_world_entities": false,
+    "skeleton_render_distance": 1000.0,
+    "target_fov_radius": 180.0,
+    "world_types": {
+      "Bag": false,
+      "Crate": false,
+      "Hemp": false,
+      "Item": true,
+      "Ore": false,
+      "TC": false
+    }
+  },
+  "version": 1
+}

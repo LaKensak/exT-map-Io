@@ -7,6 +7,10 @@ Uses the 'stable bones' TransformInternal bulk-buffer method:
 
 import math
 import struct
+try:
+    import numpy as _np
+except ImportError:  # falls back to the pure-Python skeleton path
+    _np = None
 import threading
 import time
 
@@ -132,6 +136,9 @@ SLEEPING_STALE_TTL = 3.0
 # TransformInternal trsX struct: Vec3 t (12) + pad(4) + Vec4 q (16) + Vec3 s (12) + pad(4) = 48 bytes
 TRSX_SIZE = 48
 TRSX_WORD_OFFSETS = tuple(range(0, TRSX_SIZE, 8))
+_TRSX_WORD_OFFSETS_NP = (
+    _np.array(TRSX_WORD_OFFSETS, dtype=_np.uint64) if _np is not None else None
+)
 TRSX_MAX_CAPACITY = 5000
 PARENT_WALK_LIMIT = 200
 # Parent indices describe rig topology, not pose, so they survive between
@@ -216,6 +223,46 @@ def _parse_parent_indices(raw_bytes, count):
         val = struct.unpack_from('<i', raw_bytes, off)[0]
         result[i] = val
     return result
+
+
+
+class _ChainBlock:
+    """One hierarchy's ancestor chains, cached and laid out for numpy.
+
+    A bone's chain is pure topology -- it only changes when the parent-index
+    array does, and _read_parent_index_buffers hands back the *same* list
+    object for as long as its cache entry lives. Walking every chain from
+    scratch each tick was ~14k dict steps at 40 players.
+
+    slots:  distinct TRS slots the chains touch (local position = list index)
+    matrix: one row per bone index -- its chain as local positions, -1 padded
+    """
+    __slots__ = ("parent_buffer", "slots", "slots_np", "chains", "rows", "matrix")
+
+    def __init__(self, parent_buffer, indices):
+        self.parent_buffer = parent_buffer
+        position = {}
+        self.chains = {}
+        for index in sorted(indices):
+            chain = [index]
+            cursor = parent_buffer[index]
+            depth = 0
+            while cursor >= 0 and depth < PARENT_WALK_LIMIT:
+                if cursor >= len(parent_buffer):
+                    break
+                chain.append(cursor)
+                cursor = parent_buffer[cursor]
+                depth += 1
+            self.chains[index] = chain
+            for slot in chain:
+                position.setdefault(slot, len(position))
+        self.slots = list(position)
+        self.slots_np = _np.array(self.slots, dtype=_np.uint64)
+        self.rows = {index: row for row, index in enumerate(self.chains)}
+        width = max(len(chain) for chain in self.chains.values())
+        self.matrix = _np.full((len(self.chains), width), -1, dtype=_np.int64)
+        for row, chain in enumerate(self.chains.values()):
+            self.matrix[row, :len(chain)] = [position[slot] for slot in chain]
 
 
 def _compose_position_from_buffers(trs_buf, parent_buf, index, capacity):
@@ -1092,6 +1139,9 @@ class RustGameModel(legacy.RustGame):
         if not parents:
             return None
 
+        if _np is not None:
+            return self._plan_bone_reads_np(jobs, parents)
+
         # -- Stage 2: expand every bone into its ancestor chain -------------
         # Unity stores parents before children, so a chain only ever walks
         # towards lower indices and stays inside the capacity we already read.
@@ -1128,6 +1178,79 @@ class RustGameModel(legacy.RustGame):
             addresses.extend(base + offset for offset in TRSX_WORD_OFFSETS)
         return chains, slot_keys, addresses
 
+    def _plan_bone_reads_np(self, jobs, parents):
+        """Stages 2-3 of _plan_bone_reads on cached chains (see _ChainBlock).
+
+        Same contract as the pure-Python stages -- (chains, slot_keys,
+        addresses), slot_keys aligned with the TRS words in `addresses` --
+        plus a third element per chain entry, (layout, row), that lets
+        _compose_bones walk every chain at once. Slots are grouped per
+        hierarchy instead of first-seen order; batch_u64 sorts by address
+        anyway, so the read itself is unchanged.
+        """
+        wanted = {}
+        local_ptrs = {}
+        for _, plan, _, hierarchy_ptrs in jobs:
+            for hierarchy, index in plan.values():
+                parent_buffer = parents.get(hierarchy)
+                if parent_buffer is None or not 0 <= index < len(parent_buffer):
+                    continue
+                wanted.setdefault(hierarchy, set()).add(index)
+                local_ptrs[hierarchy] = hierarchy_ptrs[hierarchy][0]
+        if not wanted:
+            return None
+        cache = getattr(self, "_chain_block_cache", None)
+        if cache is None or len(cache) > 256:
+            cache = self._chain_block_cache = {}
+
+        slot_keys = []
+        address_parts = []
+        placed = []          # (block, first_slot, first_row)
+        first_row = {}
+        rows = 0
+        width = 0
+        for hierarchy, indices in wanted.items():
+            parent_buffer = parents[hierarchy]
+            key = (hierarchy, frozenset(indices))
+            block = cache.get(key)
+            if block is None or block.parent_buffer is not parent_buffer:
+                block = cache[key] = _ChainBlock(parent_buffer, indices)
+            placed.append((block, len(slot_keys), rows))
+            first_row[hierarchy] = (block, rows)
+            slot_keys.extend((hierarchy, slot) for slot in block.slots)
+            slot_bases = (
+                _np.uint64(local_ptrs[hierarchy])
+                + _np.uint64(TRSX_SIZE) * block.slots_np
+            )
+            address_parts.append(
+                (slot_bases[:, None] + _TRSX_WORD_OFFSETS_NP[None, :]).ravel()
+            )
+            rows += block.matrix.shape[0]
+            width = max(width, block.matrix.shape[1])
+
+        layout = _np.full((rows, width), -1, dtype=_np.int64)
+        for block, first_slot, row0 in placed:
+            matrix = block.matrix
+            layout[row0:row0 + matrix.shape[0], :matrix.shape[1]] = _np.where(
+                matrix >= 0, matrix + first_slot, -1,
+            )
+
+        chains = {}
+        for pm, plan, _, _ in jobs:
+            for bone_id, (hierarchy, index) in plan.items():
+                placed_block = first_row.get(hierarchy)
+                if placed_block is None:
+                    continue
+                block, row0 = placed_block
+                row = block.rows.get(index)
+                if row is None:
+                    continue
+                chains[(pm, bone_id)] = (
+                    hierarchy, block.chains[index], (layout, row0 + row),
+                )
+        addresses = _np.concatenate(address_parts).tolist()
+        return chains, slot_keys, addresses
+
     def _compose_bones(self, jobs, chains, slot_keys, values):
         """Turn one batch of raw TRS words into world-space bone positions.
 
@@ -1136,9 +1259,101 @@ class RustGameModel(legacy.RustGame):
         _plan_bone_reads.
         """
         stats = self._bone_debug
-        anchor_radius = self._bone_anchor_radius()
-        anchor_radius_sq = anchor_radius * anchor_radius
+        world = None
+        if _np is not None:
+            world = self._world_positions_np(jobs, chains, slot_keys, values, stats)
+        if world is None:
+            world = self._world_positions_py(jobs, chains, slot_keys, values, stats)
+        return self._finish_bone_positions(jobs, world, stats)
 
+    def _world_positions_np(self, jobs, chains, slot_keys, values, stats):
+        """Every queued bone's world position, all chains walked at once.
+
+        Same maths and operation order as _world_positions_py (scale ->
+        rotate -> translate per ancestor, float64 throughout) and the same
+        rejection accounting; positions agree to ~1e-14 m (last-bit
+        rounding), not bit for bit. It was ~9 ms of GIL time per tick at 40
+        skeletons in pure Python -- the largest single piece of pos=.
+        Returns None when the chains were not planned by
+        _plan_bone_reads_np (the Python path handles those).
+        """
+        layout = None
+        for entry in chains.values():
+            if len(entry) < 3:
+                return None
+            layout = entry[2][0]
+            break
+        if layout is None:
+            return None
+        words = len(TRSX_WORD_OFFSETS)
+        stats['slots_req'] = len(slot_keys)
+        available = min(len(slot_keys), len(values) // words)
+        stats['slots_ok'] += available
+        keys = []
+        rows = []
+        for pm, plan, _, _ in jobs:
+            for bone_id in plan:
+                entry = chains.get((pm, bone_id))
+                if entry is None:
+                    stats['rej_chain'] += 1
+                    continue
+                keys.append((pm, bone_id))
+                rows.append(entry[2][1])
+        if not rows:
+            return {}
+        with _np.errstate(all="ignore"):
+            raw = _np.array(values[:available * words], dtype=_np.uint64)
+            f = raw.view(_np.float32).reshape(available, words * 2).astype(_np.float64)
+            t = f[:, 0:3]
+            q = f[:, 4:8]
+            s = f[:, 8:11]
+            norm_sq = q[:, 0] * q[:, 0] + q[:, 1] * q[:, 1] + q[:, 2] * q[:, 2] + q[:, 3] * q[:, 3]
+            q_ok = _np.isfinite(q).all(axis=1) & (norm_sq >= 0.25) & (norm_sq <= 4.0)
+            qn = q * (1.0 / _np.sqrt(norm_sq))[:, None]
+
+            m = layout[_np.asarray(rows, dtype=_np.int64)]
+            seed = m[:, 0]
+            seed_ok = (seed >= 0) & (seed < available)
+            pos = _np.zeros((len(rows), 3))
+            pos[seed_ok] = t[seed[seed_ok]]
+            alive = seed_ok.copy()
+            quat_fail = _np.zeros(len(rows), dtype=bool)
+            for level in range(1, m.shape[1]):
+                col = m[:, level]
+                step = alive & (col >= 0)
+                if not step.any():
+                    break
+                missing = step & (col >= available)
+                ai = _np.where(step & ~missing, col, 0)
+                bad = step & ~missing & ~q_ok[ai]
+                quat_fail |= bad
+                alive &= ~(missing | bad)
+                go = step & ~(missing | bad)
+                g = ai[go]
+                v = pos[go] * s[g]
+                qq = qn[g]
+                qx, qy, qz, qw = qq[:, 0], qq[:, 1], qq[:, 2], qq[:, 3]
+                vx, vy, vz = v[:, 0], v[:, 1], v[:, 2]
+                tx = 2.0 * (qy * vz - qz * vy)
+                ty = 2.0 * (qz * vx - qx * vz)
+                tz = 2.0 * (qx * vy - qy * vx)
+                tt = t[g]
+                out = _np.empty_like(v)
+                out[:, 0] = (vx + qw * tx + (qy * tz - qz * ty)) + tt[:, 0]
+                out[:, 1] = (vy + qw * ty + (qz * tx - qx * tz)) + tt[:, 1]
+                out[:, 2] = (vz + qw * tz + (qx * ty - qy * tx)) + tt[:, 2]
+                pos[go] = out
+            finite = _np.isfinite(pos).all(axis=1)
+        stats['rej_chain'] += int((~seed_ok).sum()) + int((alive & ~finite).sum())
+        stats['rej_quat'] += int(quat_fail.sum())
+        world = {}
+        for key, good, position in zip(keys, (alive & finite).tolist(), pos.tolist()):
+            if good:
+                world[key] = tuple(position)
+        return world
+
+    def _world_positions_py(self, jobs, chains, slot_keys, values, stats):
+        """Reference path for _compose_bones (and the no-numpy fallback)."""
         trs = {}
         stats['slots_req'] = len(slot_keys)
         words = len(TRSX_WORD_OFFSETS)
@@ -1163,22 +1378,14 @@ class RustGameModel(legacy.RustGame):
                 struct.unpack_from('<3f', raw, 0x20),
             )
 
-        # -- Stage 4: compose, then sanity-check against the player anchor --
-        results = {}
-        for pm, plan, anchor, _ in jobs:
-            bones = {}
-            composed_here = 0
-            anchor_rejected_here = 0
-            # Per-pm, not the global stats['worst_anchor']: the decision below
-            # is about THIS player's rig, and one broken rig would otherwise
-            # condemn every other player sampled in the same batch.
-            worst_here_sq = 0.0
+        world = {}
+        for pm, plan, _, _ in jobs:
             for bone_id in plan:
                 entry = chains.get((pm, bone_id))
                 if entry is None:
                     stats['rej_chain'] += 1
                     continue
-                hierarchy, chain = entry
+                hierarchy, chain = entry[0], entry[1]
                 seed = trs.get((hierarchy, chain[0]))
                 if seed is None:
                     stats['rej_chain'] += 1
@@ -1210,6 +1417,26 @@ class RustGameModel(legacy.RustGame):
                 if broken or not all(math.isfinite(c) for c in position):
                     if not broken:
                         stats['rej_chain'] += 1
+                    continue
+                world[(pm, bone_id)] = position
+        return world
+
+    def _finish_bone_positions(self, jobs, world, stats):
+        """Box/anchor gates and per-rig outcome, shared by both compose paths."""
+        anchor_radius = self._bone_anchor_radius()
+        anchor_radius_sq = anchor_radius * anchor_radius
+        results = {}
+        for pm, plan, anchor, _ in jobs:
+            bones = {}
+            composed_here = 0
+            anchor_rejected_here = 0
+            # Per-pm, not the global stats['worst_anchor']: the decision below
+            # is about THIS player's rig, and one broken rig would otherwise
+            # condemn every other player sampled in the same batch.
+            worst_here_sq = 0.0
+            for bone_id in plan:
+                position = world.get((pm, bone_id))
+                if position is None:
                     continue
                 if not (
                     abs(position[0]) < 6000.0

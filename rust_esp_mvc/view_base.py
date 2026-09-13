@@ -273,9 +273,6 @@ class Settings:
         # real BasePlayer uses, so nothing used to tell them apart). Off
         # switches them to fully hidden, same as a teammate filter would.
         self.show_npcs = True
-        # Sleeping players (drawn grey). Off skips them entirely: no box, no
-        # name, and they can no longer become the target-HUD player.
-        self.show_sleepers = True
         # Derive the box from the projected skeleton when one is available.
         # See calculate_bone_box for why this removes the box/skeleton drift.
         self.box_from_bones = True

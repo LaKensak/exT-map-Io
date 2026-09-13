@@ -2,10 +2,6 @@ import contextlib
 import ctypes
 import ctypes.wintypes as wt
 import struct
-try:
-    import numpy as _np
-except ImportError:  # still runs without it, only the batch packing is slower
-    _np = None
 import time
 import sys
 import math
@@ -24,49 +20,6 @@ except ImportError:
         from ._section_name import SECTION_NAME
     except ImportError:
         SECTION_NAME = ".data"
-
-
-
-_XOR_SPREAD = 0x0101010101010101
-
-
-def _batch_prepare(addrs):
-    """Page-sorted request payload for CMD_BATCH_READ_U64 + how to undo it.
-
-    The sort (driver page-cache locality) and the per-address XOR decrypt in
-    _batch_finish were a pure-Python loop over every address: ~4 ms of GIL
-    time per tick at 40 skeletons (~13k addresses). numpy does both in well
-    under a millisecond; a stable argsort keeps the exact order sorted() gave.
-    """
-    n = len(addrs)
-    if _np is not None:
-        try:
-            a = _np.fromiter(addrs, dtype=_np.uint64, count=n)
-        except (OverflowError, ValueError, TypeError):
-            a = None
-        if a is not None:
-            order = _np.argsort(a, kind="stable")
-            sorted_a = a[order]
-            return sorted_a.tobytes(), ("np", order, sorted_a)
-    indexed = sorted(enumerate(addrs), key=lambda x: x[1])
-    payload = struct.pack(f'<{n}Q', *[addr for _, addr in indexed])
-    return payload, ("py", indexed, None)
-
-
-def _batch_finish(raw_bytes, n, restore):
-    """Decrypt the driver's reply and put it back in the caller's order."""
-    kind, order, sorted_a = restore
-    if kind == "np":
-        vals = _np.frombuffer(raw_bytes, dtype=_np.uint64, count=n)
-        key = ((sorted_a ^ _np.uint64(0x5A)) & _np.uint64(0xFF)) * _np.uint64(_XOR_SPREAD)
-        out = _np.empty(n, dtype=_np.uint64)
-        out[order] = vals ^ key
-        return out.tolist()
-    raw = struct.unpack(f'<{n}Q', raw_bytes)
-    out = [0] * n
-    for i, (orig_idx, addr) in enumerate(order):
-        out[orig_idx] = raw[i] ^ (((addr ^ 0x5A) & 0xFF) * _XOR_SPREAD)
-    return out
 
 
 GUI_IMPORT_ERROR = None
@@ -921,7 +874,8 @@ class Mem:
 
         # Sort addresses by page to trigger the driver's page cache optimization
         # This prevents invalidating the page walk cache on every read
-        payload, restore = _batch_prepare(addrs)
+        indexed_addrs = sorted(enumerate(addrs), key=lambda x: x[1])
+        sorted_addrs = [x[1] for x in indexed_addrs]
 
         for attempt in range(max(1, attempts)):
             t_yield0 = time.perf_counter()
@@ -932,14 +886,14 @@ class Mem:
             t_lock0 = time.perf_counter()
             with self._drv_lock:
                 self.lock_wait_s += time.perf_counter() - t_lock0
-                ctypes.memmove(self.shared.data, payload, n * 8)
+                ctypes.memmove(self.shared.data, struct.pack(f'<{n}Q', *sorted_addrs), n * 8)
                 self.shared.cr3 = self.cr3
                 self.shared.size = n
                 self.shared.command = 5
                 self._signal_command()
                 ok = self._wait(2000) and self.shared.status == 0
                 raw = (
-                    ctypes.string_at(ctypes.addressof(self.shared.data), n * 8)
+                    struct.unpack(f'<{n}Q', ctypes.string_at(ctypes.addressof(self.shared.data), n * 8))
                     if ok else None
                 )
             if not raw:
@@ -947,7 +901,9 @@ class Mem:
                 continue
 
             # Decrypt and restore original order
-            out = _batch_finish(raw, n, restore)
+            out = [0] * n
+            for i, (orig_idx, addr) in enumerate(indexed_addrs):
+                out[orig_idx] = raw[i] ^ (((addr ^ 0x5A) & 0xFF) * 0x0101010101010101)
             if any(out) or attempt == attempts - 1:
                 return out
             time.sleep(0.0005)
@@ -968,24 +924,27 @@ class Mem:
         n = len(addrs)
         if n == 0:
             return []
-        payload, restore = _batch_prepare(addrs)
+        indexed_addrs = sorted(enumerate(addrs), key=lambda x: x[1])
+        sorted_addrs = [x[1] for x in indexed_addrs]
         with self._claim_tier(TIER_TICK):
             for attempt in range(max(1, attempts)):
                 with self._drv_lock:
-                    ctypes.memmove(self.shared.data, payload, n * 8)
+                    ctypes.memmove(self.shared.data, struct.pack(f'<{n}Q', *sorted_addrs), n * 8)
                     self.shared.cr3 = self.cr3
                     self.shared.size = n
                     self.shared.command = 5
                     self._signal_command()
                     ok = self._wait(2000) and self.shared.status == 0
                     raw = (
-                        ctypes.string_at(ctypes.addressof(self.shared.data), n * 8)
+                        struct.unpack(f'<{n}Q', ctypes.string_at(ctypes.addressof(self.shared.data), n * 8))
                         if ok else None
                     )
                 if not raw:
                     time.sleep(0.0005)
                     continue
-                out = _batch_finish(raw, n, restore)
+                out = [0] * n
+                for i, (orig_idx, addr) in enumerate(indexed_addrs):
+                    out[orig_idx] = raw[i] ^ (((addr ^ 0x5A) & 0xFF) * 0x0101010101010101)
                 if any(out) or attempt == attempts - 1:
                     return out
                 time.sleep(0.0005)

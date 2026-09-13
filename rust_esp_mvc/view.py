@@ -13,7 +13,6 @@ except ImportError:
     gl = None
 
 from . import aternos_ui as ui
-from . import config_store as cfg
 from . import view_base as base
 
 
@@ -172,74 +171,6 @@ def _draw_header(draw_list, x, y, text, px, col=0xE6FFFFFF):
     draw_list.add_text(fnt.font, px, imgui.ImVec2(x, y), col, text)
 
 
-# ── Config slots (see config_store.py) ──
-_CONFIG_STATE = None
-# Notification style from a config loaded before the menu existed (startup).
-_PENDING_NOTIFY_DESIGN = None
-
-
-def _config_state():
-    global _CONFIG_STATE
-    if _CONFIG_STATE is None:
-        _CONFIG_STATE = cfg.read_state()
-    return _CONFIG_STATE
-
-
-def _store_config_state():
-    try:
-        cfg.write_state(_config_state())
-    except OSError as exc:
-        print(f"[CONFIG] could not remember the slot: {exc!r}", flush=True)
-
-
-def _menu_prefs(menu):
-    a = ui.C.accent
-    prefs = {"accent": [a.x, a.y, a.z, a.w]}
-    design = menu.notifications.design if menu is not None else _PENDING_NOTIFY_DESIGN
-    if design in (0, 1):
-        prefs["notify_design"] = design
-    return prefs
-
-
-def _apply_menu_prefs(prefs, menu):
-    global _PENDING_NOTIFY_DESIGN
-    accent = cfg._rgba(prefs.get("accent"))
-    if accent is not None:
-        ui.C.accent = imgui.ImVec4(*accent)
-    design = prefs.get("notify_design")
-    if design in (0, 1) and not isinstance(design, bool):
-        if menu is not None:
-            menu.notifications.design = design
-        else:
-            _PENDING_NOTIFY_DESIGN = design
-
-
-def _save_config(s, menu, slot):
-    try:
-        cfg.save(s, slot, _menu_prefs(menu))
-    except OSError as exc:
-        return f"Save failed: {exc}"
-    _config_state()["slot"] = slot
-    _store_config_state()
-    return f"Saved Config {slot + 1}."
-
-
-def _load_config(s, menu, slot):
-    try:
-        _, skipped, prefs = cfg.load(s, slot)
-    except FileNotFoundError:
-        return f"Config {slot + 1} is empty -- save it first."
-    except (OSError, ValueError) as exc:
-        return f"Load failed: {exc}"
-    _apply_menu_prefs(prefs, menu)
-    _config_state()["slot"] = slot
-    _store_config_state()
-    message = f"Loaded Config {slot + 1}."
-    if skipped:
-        message += f" {skipped} outdated value(s) ignored."
-    return message
-
-
 class OverlayView(base.OverlayView):
     """Render boxes, distance, tracers, watermark and body-anchored skeletons."""
 
@@ -364,8 +295,6 @@ class OverlayView(base.OverlayView):
                     # teammate filter would skip a teammate.
                     is_npc = player.get("is_npc", False)
                     if is_npc and not s.show_npcs:
-                        continue
-                    if is_sleeping and not s.show_sleepers:
                         continue
                     raw_box = None
                     # Prefer the skeleton's own screen bounds: the bones are the
@@ -745,21 +674,8 @@ class OverlayView(base.OverlayView):
         ("f", "No Sway", "Sway & bloom removal", "No Sway: spread and sway removal."),
         ("j", "Chams", "Material override", "Chams: material override."),
         ("h", "Colors", "ESP palette", "Colors: every colour the ESP draws."),
-        ("e", "Settings", "Menu & configs", "Settings: accent, notifications, configs."),
+        ("e", "Settings", "Menu customization", "Settings: accent and notifications."),
     )
-
-    def load_startup_config(self):
-        """Load the remembered slot, if it has been saved at least once."""
-        slot = _config_state()["slot"]
-        if cfg.slot_path(slot).exists():
-            menu = getattr(self, "_aternos_menu", None)
-            print(f"[CONFIG] {_load_config(self.settings, menu, slot)}", flush=True)
-
-    def autosave_config(self):
-        state = _config_state()
-        if state["autosave"]:
-            menu = getattr(self, "_aternos_menu", None)
-            print(f"[CONFIG] {_save_config(self.settings, menu, state['slot'])}", flush=True)
 
     def _draw_menu(self):
         """INSERT-toggled menu: the aternos template (see aternos_ui.py)."""
@@ -767,8 +683,6 @@ class OverlayView(base.OverlayView):
         menu = getattr(self, "_aternos_menu", None)
         if menu is None:
             menu = self._aternos_menu = ui.Menu(self._MENU_TABS)
-            if _PENDING_NOTIFY_DESIGN is not None:
-                menu.notifications.design = _PENDING_NOTIFY_DESIGN
         tabs = (
             self._draw_feature_tab,
             self._draw_aim_tab,
@@ -792,7 +706,6 @@ class OverlayView(base.OverlayView):
             _, s.show_distance = ui.checkbox("Distance", "Range in metres under the player", s.show_distance)
             _, s.show_held_item = ui.checkbox("Held item", "What they have in hand", s.show_held_item)
             _, s.show_npcs = ui.checkbox("Show NPCs", "Scientists, zombies, bandits... in amber", s.show_npcs)
-            _, s.show_sleepers = ui.checkbox("Show sleepers", "Sleeping players, in grey", s.show_sleepers)
             _tip(
                 "Scientists, zombies/murderers, bandit camp NPCs,\n"
                 "scarecrows, pets, shopkeepers. Drawn in a distinct amber\n"
@@ -1133,26 +1046,6 @@ class OverlayView(base.OverlayView):
                 s.reset_colors()
                 menu.notifications.add("ESP colours reset to defaults.", 2500)
 
-        def right():
-            ui.section("Config")
-            state = _config_state()
-            changed, slot = ui.combo(
-                "Config slot", "Which file Save / Load use", state["slot"], cfg.slot_labels()
-            )
-            if changed:
-                state["slot"] = slot
-                _store_config_state()
-            if ui.action_row("Save config", "Write every setting to this slot", "SAVE"):
-                menu.notifications.add(_save_config(s, menu, state["slot"]), 2500)
-            if ui.action_row("Load config", "Restore every setting from this slot", "LOAD"):
-                menu.notifications.add(_load_config(s, menu, state["slot"]), 2500)
-            toggled, value = ui.checkbox(
-                "Auto-save", "Save to this slot when the overlay closes", state["autosave"]
-            )
-            if toggled:
-                state["autosave"] = value
-                _store_config_state()
-
-        _two_columns(left, right)
+        _two_columns(left, lambda: None)
 
 # MARKER_TEST

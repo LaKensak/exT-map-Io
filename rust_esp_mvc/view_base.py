@@ -248,6 +248,19 @@ PALETTE_GROUPS = (
 )
 
 
+# The available homing weapons and their display names in the UI
+HOMING_WEAPON_KEYS = [
+    "bow_hunting", "bow_compound", "crossbow", "pistol_nailgun",
+    "rifle_ak", "rifle_lr300", "rifle_m39", "rifle_semiauto",
+    "pistol_eoka", "shotgun_waterpipe", "shotgun_double", "shotgun_pump", "shotgun_spas12"
+]
+HOMING_WEAPON_LABELS = [
+    "Hunting Bow", "Compound Bow", "Crossbow", "Nailgun",
+    "AK-47", "LR-300", "M39", "SAR",
+    "Eoka", "Waterpipe", "Double Barrel", "Pump Shotgun", "SPAS-12"
+]
+
+
 class Settings:
     """User-toggleable ESP feature flags and colours, controlled by the menu."""
 
@@ -273,6 +286,9 @@ class Settings:
         # real BasePlayer uses, so nothing used to tell them apart). Off
         # switches them to fully hidden, same as a teammate filter would.
         self.show_npcs = True
+        # Sleeping players (drawn grey). Off skips them entirely: no box, no
+        # name, and they can no longer become the target-HUD player.
+        self.show_sleepers = True
         # Derive the box from the projected skeleton when one is available.
         # See calculate_bone_box for why this removes the box/skeleton drift.
         self.box_from_bones = True
@@ -363,6 +379,12 @@ class Settings:
         # allows for sway and movement, a hard turn does not.
         self.aim_projectile_homing = False
         self.aim_homing_turn_dps = 60.0
+        # Multi-combo boolean list: True for bows/nailgun, False for firearms by default
+        self.aim_homing_weapon_flags = [
+            True, True, True, True,       # Bows, Crossbow, Nailgun
+            False, False, False, False,   # Rifles
+            False, False, False, False, False  # Shotguns/Eoka
+        ]
 
         # ── Anti-detection / secure writes ──
         # Dual-write: write bodyAngles + headAngles simultaneously.

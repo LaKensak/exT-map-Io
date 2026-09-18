@@ -83,6 +83,7 @@ class EspController:
 
         try:
             self._view = OverlayView()
+            self._view.load_startup_config()
         except OverlayDependencyError as exc:
             print("[!] imgui-bundle ou glfw indisponible.")
             print(f"    {exc}")
@@ -202,6 +203,11 @@ class EspController:
         except KeyboardInterrupt:
             pass
         finally:
+            if self._view is not None:
+                try:
+                    self._view.autosave_config()
+                except Exception as exc:
+                    print(f"[CONFIG] auto-save failed: {exc!r}", flush=True)
             self._cleanup()
 
 

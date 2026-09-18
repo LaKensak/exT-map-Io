@@ -7,6 +7,10 @@ Uses the 'stable bones' TransformInternal bulk-buffer method:
 
 import math
 import struct
+try:
+    import numpy as _np
+except ImportError:  # falls back to the pure-Python skeleton path
+    _np = None
 import threading
 import time
 
@@ -65,6 +69,18 @@ BONE_MAX_NEW_JOBS_PER_TICK = 6
 # reset the moment one succeeds. See OFFSET_RECOVERY.md trap #46.
 BONE_RIG_RETRY_BASE = 0.35
 BONE_RIG_RETRY_MAX = 20.0
+# Consecutive ticks a cached BasePlayer must read playerModel == 0 before the
+# pm->bp pair is evicted. One zero is a missed batch entry; a run of them is a
+# BasePlayer the game destroyed when that player respawned into a new one.
+NULL_BACKREF_TICKS = 3
+# A player whose BasePlayer the game destroyed is dead: the skeleton goes the
+# same tick, but the PlayerModel stays in the list (and its box on screen) for
+# up to a second more. The pm is hidden until it is alive again, which is one of:
+# a new BasePlayer mapped to it, or its position teleporting (a respawn) --
+# DEAD_RESPAWN_JUMP between two reads is far beyond any ragdoll. DEAD_MARK_MAX
+# only bounds a mark nothing ever cleared.
+DEAD_RESPAWN_JUMP = 4.0
+DEAD_MARK_MAX = 30.0
 
 # Above this, _read_player_frame_batch prints a [POS-DBG] breakdown of its own
 # phases. [TICK-LATENCY] only reports the whole thing as one pos= number, which
@@ -132,6 +148,9 @@ SLEEPING_STALE_TTL = 3.0
 # TransformInternal trsX struct: Vec3 t (12) + pad(4) + Vec4 q (16) + Vec3 s (12) + pad(4) = 48 bytes
 TRSX_SIZE = 48
 TRSX_WORD_OFFSETS = tuple(range(0, TRSX_SIZE, 8))
+_TRSX_WORD_OFFSETS_NP = (
+    _np.array(TRSX_WORD_OFFSETS, dtype=_np.uint64) if _np is not None else None
+)
 TRSX_MAX_CAPACITY = 5000
 PARENT_WALK_LIMIT = 200
 # Parent indices describe rig topology, not pose, so they survive between
@@ -216,6 +235,46 @@ def _parse_parent_indices(raw_bytes, count):
         val = struct.unpack_from('<i', raw_bytes, off)[0]
         result[i] = val
     return result
+
+
+
+class _ChainBlock:
+    """One hierarchy's ancestor chains, cached and laid out for numpy.
+
+    A bone's chain is pure topology -- it only changes when the parent-index
+    array does, and _read_parent_index_buffers hands back the *same* list
+    object for as long as its cache entry lives. Walking every chain from
+    scratch each tick was ~14k dict steps at 40 players.
+
+    slots:  distinct TRS slots the chains touch (local position = list index)
+    matrix: one row per bone index -- its chain as local positions, -1 padded
+    """
+    __slots__ = ("parent_buffer", "slots", "slots_np", "chains", "rows", "matrix")
+
+    def __init__(self, parent_buffer, indices):
+        self.parent_buffer = parent_buffer
+        position = {}
+        self.chains = {}
+        for index in sorted(indices):
+            chain = [index]
+            cursor = parent_buffer[index]
+            depth = 0
+            while cursor >= 0 and depth < PARENT_WALK_LIMIT:
+                if cursor >= len(parent_buffer):
+                    break
+                chain.append(cursor)
+                cursor = parent_buffer[cursor]
+                depth += 1
+            self.chains[index] = chain
+            for slot in chain:
+                position.setdefault(slot, len(position))
+        self.slots = list(position)
+        self.slots_np = _np.array(self.slots, dtype=_np.uint64)
+        self.rows = {index: row for row, index in enumerate(self.chains)}
+        width = max(len(chain) for chain in self.chains.values())
+        self.matrix = _np.full((len(self.chains), width), -1, dtype=_np.int64)
+        for row, chain in enumerate(self.chains.values()):
+            self.matrix[row, :len(chain)] = [position[slot] for slot in chain]
 
 
 def _compose_position_from_buffers(trs_buf, parent_buf, index, capacity):
@@ -368,13 +427,24 @@ class RustGameModel(legacy.RustGame):
         everyone. See OFFSET_RECOVERY.md trap #27.
         """
         active = set(pm_ptrs)
+        now_seen = time.perf_counter()
+        # The game drops a PlayerModel from its list for 1-4 s while its player is
+        # dead and returns the same address. Keep its bp through that gap so a
+        # player who did not respawn is not re-walked behind the retry backoff;
+        # one who did respawn got a NEW BasePlayer, and the null backref check in
+        # _read_player_frame_batch evicts the destroyed one within 3 ticks.
+        seen_at = getattr(self, "_pm_bp_seen_at", None) or {}
+        for pm in active:
+            seen_at[pm] = now_seen
+        self._pm_bp_seen_at = {
+            pm: t for pm, t in seen_at.items()
+            if now_seen - t <= BP_ATTEMPT_MEMORY
+        }
         self._pm_bp_cache = {
             pm: bp
             for pm, bp in self._pm_bp_cache.items()
-            if pm in active and legacy._valid_user_ptr(bp)
+            if pm in self._pm_bp_seen_at and legacy._valid_user_ptr(bp)
         }
-
-        now_seen = time.perf_counter()
 
         # Always collect first: a finished mapping is free to apply, and making
         # it wait behind the retry backoff would delay the very thing the
@@ -651,6 +721,11 @@ class RustGameModel(legacy.RustGame):
                 pm: n for pm, n in self._bone_resolve_fails.items()
                 if pm in active
             }
+        fail_info = getattr(self, "_bone_resolve_fail_info", None) or {}
+        if fail_info:
+            fail_info = self._bone_resolve_fail_info = {
+                pm: info for pm, info in fail_info.items() if pm in active
+            }
 
         admitted_this_tick = 0
         for pm, bp in pm_to_bp.items():
@@ -659,6 +734,14 @@ class RustGameModel(legacy.RustGame):
             identity = self._bone_rig_identity.get(pm)
             if identity is not None and identity[0] != bp:
                 self._invalidate_bone_rig(pm, retry_delay=0.0)
+            failed = fail_info.get(pm)
+            if failed is not None and failed[1] and failed[1] != bp:
+                # A respawn hands the recycled PlayerModel a new BasePlayer. The
+                # backoff was earned by the destroyed one, whose Model was null;
+                # `identity` cannot catch this because that rig never resolved.
+                fail_info.pop(pm, None)
+                self._bone_resolve_fails.pop(pm, None)
+                self._bone_resolve_retry_at.pop(pm, None)
             if len(self._bone_slot_cache.get(pm, {})) >= BONE_MIN_VALID:
                 continue
             if pm in self._bone_resolve_jobs:
@@ -738,8 +821,19 @@ class RustGameModel(legacy.RustGame):
         `delay=None` means "use the backoff". An explicit delay is still
         honoured for the caller that wants an immediate retry.
         """
-        self._bone_resolve_jobs.pop(pm, None)
+        job = self._bone_resolve_jobs.pop(pm, None)
         if delay is None:
+            stage = job.get("stage", "?") if job else "?"
+            stages = getattr(self, "_rig_fail_stages", None)
+            if stages is None:
+                stages = self._rig_fail_stages = {}
+            stages[stage] = stages.get(stage, 0) + 1
+            # What failed and on which bp: lets a model-stage failure retry the
+            # moment the Model pointer appears, and a new bp drop the backoff.
+            info = getattr(self, "_bone_resolve_fail_info", None)
+            if info is None:
+                info = self._bone_resolve_fail_info = {}
+            info[pm] = (stage, job.get("bp", 0) if job else 0)
             fails = self._bone_resolve_fails.get(pm, 0) + 1
             self._bone_resolve_fails[pm] = fails
             delay = min(
@@ -823,6 +917,7 @@ class RustGameModel(legacy.RustGame):
             if len(plan) >= BONE_MIN_VALID:
                 self._bone_slot_cache[pm] = plan
                 self._bone_resolve_fails.pop(pm, None)
+                (getattr(self, "_bone_resolve_fail_info", None) or {}).pop(pm, None)
                 self._bone_rig_identity[pm] = (
                     job["bp"],
                     job.get("model", 0),
@@ -1092,6 +1187,9 @@ class RustGameModel(legacy.RustGame):
         if not parents:
             return None
 
+        if _np is not None:
+            return self._plan_bone_reads_np(jobs, parents)
+
         # -- Stage 2: expand every bone into its ancestor chain -------------
         # Unity stores parents before children, so a chain only ever walks
         # towards lower indices and stays inside the capacity we already read.
@@ -1128,6 +1226,79 @@ class RustGameModel(legacy.RustGame):
             addresses.extend(base + offset for offset in TRSX_WORD_OFFSETS)
         return chains, slot_keys, addresses
 
+    def _plan_bone_reads_np(self, jobs, parents):
+        """Stages 2-3 of _plan_bone_reads on cached chains (see _ChainBlock).
+
+        Same contract as the pure-Python stages -- (chains, slot_keys,
+        addresses), slot_keys aligned with the TRS words in `addresses` --
+        plus a third element per chain entry, (layout, row), that lets
+        _compose_bones walk every chain at once. Slots are grouped per
+        hierarchy instead of first-seen order; batch_u64 sorts by address
+        anyway, so the read itself is unchanged.
+        """
+        wanted = {}
+        local_ptrs = {}
+        for _, plan, _, hierarchy_ptrs in jobs:
+            for hierarchy, index in plan.values():
+                parent_buffer = parents.get(hierarchy)
+                if parent_buffer is None or not 0 <= index < len(parent_buffer):
+                    continue
+                wanted.setdefault(hierarchy, set()).add(index)
+                local_ptrs[hierarchy] = hierarchy_ptrs[hierarchy][0]
+        if not wanted:
+            return None
+        cache = getattr(self, "_chain_block_cache", None)
+        if cache is None or len(cache) > 256:
+            cache = self._chain_block_cache = {}
+
+        slot_keys = []
+        address_parts = []
+        placed = []          # (block, first_slot, first_row)
+        first_row = {}
+        rows = 0
+        width = 0
+        for hierarchy, indices in wanted.items():
+            parent_buffer = parents[hierarchy]
+            key = (hierarchy, frozenset(indices))
+            block = cache.get(key)
+            if block is None or block.parent_buffer is not parent_buffer:
+                block = cache[key] = _ChainBlock(parent_buffer, indices)
+            placed.append((block, len(slot_keys), rows))
+            first_row[hierarchy] = (block, rows)
+            slot_keys.extend((hierarchy, slot) for slot in block.slots)
+            slot_bases = (
+                _np.uint64(local_ptrs[hierarchy])
+                + _np.uint64(TRSX_SIZE) * block.slots_np
+            )
+            address_parts.append(
+                (slot_bases[:, None] + _TRSX_WORD_OFFSETS_NP[None, :]).ravel()
+            )
+            rows += block.matrix.shape[0]
+            width = max(width, block.matrix.shape[1])
+
+        layout = _np.full((rows, width), -1, dtype=_np.int64)
+        for block, first_slot, row0 in placed:
+            matrix = block.matrix
+            layout[row0:row0 + matrix.shape[0], :matrix.shape[1]] = _np.where(
+                matrix >= 0, matrix + first_slot, -1,
+            )
+
+        chains = {}
+        for pm, plan, _, _ in jobs:
+            for bone_id, (hierarchy, index) in plan.items():
+                placed_block = first_row.get(hierarchy)
+                if placed_block is None:
+                    continue
+                block, row0 = placed_block
+                row = block.rows.get(index)
+                if row is None:
+                    continue
+                chains[(pm, bone_id)] = (
+                    hierarchy, block.chains[index], (layout, row0 + row),
+                )
+        addresses = _np.concatenate(address_parts).tolist()
+        return chains, slot_keys, addresses
+
     def _compose_bones(self, jobs, chains, slot_keys, values):
         """Turn one batch of raw TRS words into world-space bone positions.
 
@@ -1136,9 +1307,101 @@ class RustGameModel(legacy.RustGame):
         _plan_bone_reads.
         """
         stats = self._bone_debug
-        anchor_radius = self._bone_anchor_radius()
-        anchor_radius_sq = anchor_radius * anchor_radius
+        world = None
+        if _np is not None:
+            world = self._world_positions_np(jobs, chains, slot_keys, values, stats)
+        if world is None:
+            world = self._world_positions_py(jobs, chains, slot_keys, values, stats)
+        return self._finish_bone_positions(jobs, world, stats)
 
+    def _world_positions_np(self, jobs, chains, slot_keys, values, stats):
+        """Every queued bone's world position, all chains walked at once.
+
+        Same maths and operation order as _world_positions_py (scale ->
+        rotate -> translate per ancestor, float64 throughout) and the same
+        rejection accounting; positions agree to ~1e-14 m (last-bit
+        rounding), not bit for bit. It was ~9 ms of GIL time per tick at 40
+        skeletons in pure Python -- the largest single piece of pos=.
+        Returns None when the chains were not planned by
+        _plan_bone_reads_np (the Python path handles those).
+        """
+        layout = None
+        for entry in chains.values():
+            if len(entry) < 3:
+                return None
+            layout = entry[2][0]
+            break
+        if layout is None:
+            return None
+        words = len(TRSX_WORD_OFFSETS)
+        stats['slots_req'] = len(slot_keys)
+        available = min(len(slot_keys), len(values) // words)
+        stats['slots_ok'] += available
+        keys = []
+        rows = []
+        for pm, plan, _, _ in jobs:
+            for bone_id in plan:
+                entry = chains.get((pm, bone_id))
+                if entry is None:
+                    stats['rej_chain'] += 1
+                    continue
+                keys.append((pm, bone_id))
+                rows.append(entry[2][1])
+        if not rows:
+            return {}
+        with _np.errstate(all="ignore"):
+            raw = _np.array(values[:available * words], dtype=_np.uint64)
+            f = raw.view(_np.float32).reshape(available, words * 2).astype(_np.float64)
+            t = f[:, 0:3]
+            q = f[:, 4:8]
+            s = f[:, 8:11]
+            norm_sq = q[:, 0] * q[:, 0] + q[:, 1] * q[:, 1] + q[:, 2] * q[:, 2] + q[:, 3] * q[:, 3]
+            q_ok = _np.isfinite(q).all(axis=1) & (norm_sq >= 0.25) & (norm_sq <= 4.0)
+            qn = q * (1.0 / _np.sqrt(norm_sq))[:, None]
+
+            m = layout[_np.asarray(rows, dtype=_np.int64)]
+            seed = m[:, 0]
+            seed_ok = (seed >= 0) & (seed < available)
+            pos = _np.zeros((len(rows), 3))
+            pos[seed_ok] = t[seed[seed_ok]]
+            alive = seed_ok.copy()
+            quat_fail = _np.zeros(len(rows), dtype=bool)
+            for level in range(1, m.shape[1]):
+                col = m[:, level]
+                step = alive & (col >= 0)
+                if not step.any():
+                    break
+                missing = step & (col >= available)
+                ai = _np.where(step & ~missing, col, 0)
+                bad = step & ~missing & ~q_ok[ai]
+                quat_fail |= bad
+                alive &= ~(missing | bad)
+                go = step & ~(missing | bad)
+                g = ai[go]
+                v = pos[go] * s[g]
+                qq = qn[g]
+                qx, qy, qz, qw = qq[:, 0], qq[:, 1], qq[:, 2], qq[:, 3]
+                vx, vy, vz = v[:, 0], v[:, 1], v[:, 2]
+                tx = 2.0 * (qy * vz - qz * vy)
+                ty = 2.0 * (qz * vx - qx * vz)
+                tz = 2.0 * (qx * vy - qy * vx)
+                tt = t[g]
+                out = _np.empty_like(v)
+                out[:, 0] = (vx + qw * tx + (qy * tz - qz * ty)) + tt[:, 0]
+                out[:, 1] = (vy + qw * ty + (qz * tx - qx * tz)) + tt[:, 1]
+                out[:, 2] = (vz + qw * tz + (qx * ty - qy * tx)) + tt[:, 2]
+                pos[go] = out
+            finite = _np.isfinite(pos).all(axis=1)
+        stats['rej_chain'] += int((~seed_ok).sum()) + int((alive & ~finite).sum())
+        stats['rej_quat'] += int(quat_fail.sum())
+        world = {}
+        for key, good, position in zip(keys, (alive & finite).tolist(), pos.tolist()):
+            if good:
+                world[key] = tuple(position)
+        return world
+
+    def _world_positions_py(self, jobs, chains, slot_keys, values, stats):
+        """Reference path for _compose_bones (and the no-numpy fallback)."""
         trs = {}
         stats['slots_req'] = len(slot_keys)
         words = len(TRSX_WORD_OFFSETS)
@@ -1163,22 +1426,14 @@ class RustGameModel(legacy.RustGame):
                 struct.unpack_from('<3f', raw, 0x20),
             )
 
-        # -- Stage 4: compose, then sanity-check against the player anchor --
-        results = {}
-        for pm, plan, anchor, _ in jobs:
-            bones = {}
-            composed_here = 0
-            anchor_rejected_here = 0
-            # Per-pm, not the global stats['worst_anchor']: the decision below
-            # is about THIS player's rig, and one broken rig would otherwise
-            # condemn every other player sampled in the same batch.
-            worst_here_sq = 0.0
+        world = {}
+        for pm, plan, _, _ in jobs:
             for bone_id in plan:
                 entry = chains.get((pm, bone_id))
                 if entry is None:
                     stats['rej_chain'] += 1
                     continue
-                hierarchy, chain = entry
+                hierarchy, chain = entry[0], entry[1]
                 seed = trs.get((hierarchy, chain[0]))
                 if seed is None:
                     stats['rej_chain'] += 1
@@ -1210,6 +1465,26 @@ class RustGameModel(legacy.RustGame):
                 if broken or not all(math.isfinite(c) for c in position):
                     if not broken:
                         stats['rej_chain'] += 1
+                    continue
+                world[(pm, bone_id)] = position
+        return world
+
+    def _finish_bone_positions(self, jobs, world, stats):
+        """Box/anchor gates and per-rig outcome, shared by both compose paths."""
+        anchor_radius = self._bone_anchor_radius()
+        anchor_radius_sq = anchor_radius * anchor_radius
+        results = {}
+        for pm, plan, anchor, _ in jobs:
+            bones = {}
+            composed_here = 0
+            anchor_rejected_here = 0
+            # Per-pm, not the global stats['worst_anchor']: the decision below
+            # is about THIS player's rig, and one broken rig would otherwise
+            # condemn every other player sampled in the same batch.
+            worst_here_sq = 0.0
+            for bone_id in plan:
+                position = world.get((pm, bone_id))
+                if position is None:
                     continue
                 if not (
                     abs(position[0]) < 6000.0
@@ -1402,6 +1677,7 @@ class RustGameModel(legacy.RustGame):
             addresses.append(address)
 
         vel_probe = self._velocity_offsets()
+        rig_fail_info = getattr(self, "_bone_resolve_fail_info", None) or {}
         for pm in pm_ptrs:
             add(pm, "local", pm + legacy.OFF.pm_is_local_player)
             add(pm, "server_0_lo", pm + legacy.OFF.position_pm)
@@ -1443,6 +1719,14 @@ class RustGameModel(legacy.RustGame):
                 add(pm, "health_0", bp_hint + legacy.OFF.lifestate)
                 add(pm, "health_1", bp_hint + legacy.OFF.lifestate + 8)
                 add(pm, "health_2", bp_hint + legacy.OFF.lifestate + 16)
+                # A rig that failed because Model was null (player dead or
+                # still respawning) waits behind a backoff of up to 20 s. One
+                # slot per such player watches for the Model to appear instead.
+                failed = rig_fail_info.get(pm)
+                if (failed is not None and failed[0] == "model"
+                        and pm not in self._bone_resolve_jobs
+                        and pm not in self._bone_slot_cache):
+                    add(pm, "rig_probe", bp_hint + legacy.OFF.model)
 
             job = self._bone_resolve_jobs.get(pm)
             if job is not None:
@@ -1463,15 +1747,10 @@ class RustGameModel(legacy.RustGame):
                 for word in range(HEALTH_PROBE_WORDS):
                     add(probe_pm, ("hraw", word), probe_base + word * 8)
 
-        bone_start = len(addresses)
-        if planned is not None:
-            addresses.extend(planned[2])
-
         t_mark = time.perf_counter()
-        values = self.m.batch_u64(addresses, attempts=1)
+        values = self.m.batch_u64(addresses, attempts=2)
         d_batch = (time.perf_counter() - t_mark) * 1000
         io_batch = self.m.io_calls - io0 - io_map
-        bone_values = values[bone_start:]
         by_pm = {}
         for (pm, field), value in zip(descriptors, values):
             by_pm.setdefault(pm, {})[field] = value
@@ -1481,17 +1760,38 @@ class RustGameModel(legacy.RustGame):
         # Evict recycled pm->bp pairs before anything is seeded from the
         # caches they poisoned. Cheap: the address was already in this tick's
         # batch, so this costs no extra IOCTL.
+        null_backref = getattr(self, "_null_backref_ticks", None)
+        if null_backref is None:
+            null_backref = self._null_backref_ticks = {}
         for pm in pm_ptrs:
             backref = by_pm.get(pm, {}).get("bp_backref")
             if backref is None or backref == pm:
+                null_backref.pop(pm, None)
                 continue
-            # Only a valid pointer to a DIFFERENT PlayerModel is evidence of
-            # recycling. A failed batch entry reads back as 0, and evicting on
-            # that would thrash the mapping (and re-arm the ~600 ms
-            # BaseNetworkable walk) every time one read in the tick missed.
-            if not legacy._valid_user_ptr(backref):
-                continue
+            # A valid pointer to a DIFFERENT PlayerModel is recycling. A zero
+            # is either one missed batch entry -- evicting on that would thrash
+            # the mapping and re-arm the ~600 ms walk -- or a BasePlayer the
+            # game destroyed: a respawned player keeps the pm address but gets
+            # a new BasePlayer, and the old one's Model reads null forever
+            # (every [RIG-FAIL] in the 2026-09-15 log was stage 'model'). Only a
+            # run of zeros is evidence.
+            destroyed = not legacy._valid_user_ptr(backref)
+            if destroyed:
+                fields = by_pm.get(pm, {})
+                # A failed IOCTL reads 0 everywhere, position included. Only a
+                # zero backref next to a PlayerModel position that WAS read
+                # is a destroyed BasePlayer -- otherwise one bad batch would
+                # mark every player dead and hide the whole ESP.
+                if not (fields.get("server_0_lo") or fields.get("server_0_hi")):
+                    continue
+                missed = null_backref.get(pm, 0) + 1
+                null_backref[pm] = missed
+                if missed < NULL_BACKREF_TICKS:
+                    continue
+            null_backref.pop(pm, None)
             stale_bp = self._pm_bp_cache.pop(pm, 0)
+            if destroyed and not (by_pm.get(pm, {}).get("local", 0) & 0xFF):
+                self._mark_pm_dead(pm, stale_bp)
             self._health_cache.pop(pm, None)
             self._sleeping_cache.pop(pm, None)
             self._sleeping_seen_at.pop(pm, None)
@@ -1502,6 +1802,17 @@ class RustGameModel(legacy.RustGame):
                 f"whose playerModel is now 0x{backref:X} -- recycled, evicted",
                 flush=True,
             )
+        if len(null_backref) > len(active_set):
+            self._null_backref_ticks = {
+                pm: n for pm, n in null_backref.items() if pm in active_set
+            }
+
+        for pm, failed in list(rig_fail_info.items()):
+            probe = by_pm.get(pm, {}).get("rig_probe")
+            if probe is not None and legacy._valid_user_ptr(probe):
+                rig_fail_info.pop(pm, None)
+                self._bone_resolve_fails.pop(pm, None)
+                self._bone_resolve_retry_at.pop(pm, None)
 
         for pm in pm_ptrs:
             self._consume_rig_job(pm, by_pm.get(pm, {}))
@@ -1728,16 +2039,14 @@ class RustGameModel(legacy.RustGame):
                 elif health_reject_sample is None:
                     health_reject_sample = (pm, life_state, health, max_health)
 
-        # Compose every queued skeleton from the TRS words that rode along
-        # in the frame batch above. Shared ancestors between players in the
-        # same hierarchy were deduplicated at planning time.
         short = 0
         anchor_only = 0
         broken = 0
         if bone_jobs and planned is not None:
             t_mark = time.perf_counter()
             io_before_bones = self.m.io_calls
-            chains, slot_keys, _ = planned
+            chains, slot_keys, bone_addrs = planned
+            bone_values = self.m.batch_u64(bone_addrs, attempts=1)
             sampled_bones = self._compose_bones(
                 bone_jobs, chains, slot_keys, bone_values,
             )
@@ -1766,11 +2075,14 @@ class RustGameModel(legacy.RustGame):
         elif self._last_local_pm in active_set:
             local_pm = self._last_local_pm
 
+        self._update_dead_marks(server_positions)
+
         enemies = [pm for pm in pm_ptrs if pm != local_pm]
+        seen_recently = getattr(self, "_pm_bp_seen_at", ())
         self._pm_bp_cache = {
             pm: bp
             for pm, bp in self._pm_bp_cache.items()
-            if pm in active_set
+            if pm in active_set or pm in seen_recently
         }
         active_pm_to_bp = {
             pm: self._pm_bp_cache.get(pm, 0)
@@ -1809,15 +2121,10 @@ class RustGameModel(legacy.RustGame):
         if now_profile >= self._next_pos_profile_at:
             self._next_pos_profile_at = now_profile + 1.0
             n = acc['n'] or 1
-            # Raw components only -- no assumed ms-per-io fudge factor here.
-            # Cross-reference against the same second's [TICK-LATENCY]
-            # io=N calls X.XXms for the real per-io cost instead of guessing
-            # one. Since the skeleton reads were merged into the frame batch,
-            # `bones=` is now pure composition time (~2.5 ms at 39 skeletons)
-            # against 0.00io, and `batch=` carries the single round-trip for
-            # both. `batch=` showing 2.00io means a parent-index cache miss
-            # ran its own read during planning -- [BONE-DBG] `pread=` names
-            # it; see _read_parent_index_buffers.
+            # `batch=` is the critical-path IOCTL (positions, health, flags)
+            # and `bones=` is bone TRS IOCTL + composition. Splitting these
+            # means a bone-batch timeout only drops skeletons, not the whole
+            # ESP.
             print(
                 f"[POS-PROFILE] n={acc['n']} avg "
                 f"map={acc['d_map'] / n:.2f}ms rig={acc['d_rig'] / n:.2f}ms "
@@ -1852,6 +2159,60 @@ class RustGameModel(legacy.RustGame):
             sleeping_by_pm,
             bone_positions_by_pm,
         )
+
+    def _mark_pm_dead(self, pm, destroyed_bp):
+        """Hide a player whose BasePlayer was just destroyed (see DEAD_MARK_MAX).
+
+        Also drops the position smoothing state, so that when the pm comes back
+        at its respawn point the box starts there instead of gliding over from
+        the corpse.
+        """
+        dead = getattr(self, "_pm_dead", None)
+        if dead is None:
+            dead = self._pm_dead = {}
+        last_pos = getattr(self, "_pm_pos_cache", {}).get(pm)
+        dead[pm] = [time.perf_counter(), destroyed_bp, last_pos]
+        for cache_name in ("_pm_raw_pos_cache", "_pm_smooth_pos_cache",
+                           "_pm_pos_time_cache", "_pm_jump_state"):
+            cache = getattr(self, cache_name, None)
+            if cache is not None:
+                cache.pop(pm, None)
+        print(
+            f"[DEATH] pm=0x{pm:X} bp=0x{destroyed_bp:X} destroyed -> box and "
+            f"skeleton hidden",
+            flush=True,
+        )
+
+    def _update_dead_marks(self, positions):
+        """Lift a death mark once the player is provably alive again."""
+        dead = getattr(self, "_pm_dead", None)
+        if not dead:
+            return
+        now = time.perf_counter()
+        for pm, mark in list(dead.items()):
+            since, destroyed_bp, last_pos = mark
+            bp = self._pm_bp_cache.get(pm, 0)
+            pos = positions.get(pm)
+            why = None
+            # A walk started before the death can still hand back the old,
+            # destroyed bp; only a different one is a new life.
+            if legacy._valid_user_ptr(bp) and bp != destroyed_bp:
+                why = f"new bp=0x{bp:X}"
+            elif pos is not None and last_pos is not None:
+                jump = self._dist3(pos, last_pos)
+                if jump > DEAD_RESPAWN_JUMP:
+                    why = f"respawn jump {jump:.0f}m"
+            if why is None and now - since > DEAD_MARK_MAX:
+                why = "timeout"
+            if why is None:
+                if pos is not None:
+                    mark[2] = pos
+                continue
+            del dead[pm]
+            print(
+                f"[DEATH] pm=0x{pm:X} alive again after {now - since:.1f}s ({why})",
+                flush=True,
+            )
 
     def _probe_health_window(self, by_pm, positions, local_pm):
         """Print the raw floats around lifestate for the nearest player.
@@ -1992,6 +2353,22 @@ class RustGameModel(legacy.RustGame):
         worst = math.sqrt(stats.get('worst_anchor', 0.0))
         bone_counts = [len(b) for b in produced.values()]
         limit = self._bone_anchor_radius()
+        fail_stages = getattr(self, "_rig_fail_stages", None)
+        if fail_stages:
+            fails = getattr(self, "_bone_resolve_fails", None) or {}
+            retry_at = getattr(self, "_bone_resolve_retry_at", None) or {}
+            waits = sorted(
+                (retry_at[pm] - now for pm, n in fails.items()
+                 if n >= 3 and pm in retry_at),
+                reverse=True,
+            )
+            print(
+                f"[RIG-FAIL] last 1s by stage {fail_stages} | cold={len(waits)} "
+                f"max_fails={max(fails.values()) if fails else 0} "
+                f"longest_wait={waits[0] if waits else 0.0:.1f}s",
+                flush=True,
+            )
+            self._rig_fail_stages = {}
         print(
             "[BONE-DBG] pm=%d local=%s origin=%s rig=%d job=%d%s "
             "cand=%d%s sampled=%d queued=%d stale=%d(+%d) | hier=%d/%d pread=%d slots=%d/%d "

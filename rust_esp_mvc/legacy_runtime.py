@@ -2,6 +2,10 @@ import contextlib
 import ctypes
 import ctypes.wintypes as wt
 import struct
+try:
+    import numpy as _np
+except ImportError:  # still runs without it, only the batch packing is slower
+    _np = None
 import time
 import sys
 import math
@@ -20,6 +24,49 @@ except ImportError:
         from ._section_name import SECTION_NAME
     except ImportError:
         SECTION_NAME = ".data"
+
+
+
+_XOR_SPREAD = 0x0101010101010101
+
+
+def _batch_prepare(addrs):
+    """Page-sorted request payload for CMD_BATCH_READ_U64 + how to undo it.
+
+    The sort (driver page-cache locality) and the per-address XOR decrypt in
+    _batch_finish were a pure-Python loop over every address: ~4 ms of GIL
+    time per tick at 40 skeletons (~13k addresses). numpy does both in well
+    under a millisecond; a stable argsort keeps the exact order sorted() gave.
+    """
+    n = len(addrs)
+    if _np is not None:
+        try:
+            a = _np.fromiter(addrs, dtype=_np.uint64, count=n)
+        except (OverflowError, ValueError, TypeError):
+            a = None
+        if a is not None:
+            order = _np.argsort(a, kind="stable")
+            sorted_a = a[order]
+            return sorted_a.tobytes(), ("np", order, sorted_a)
+    indexed = sorted(enumerate(addrs), key=lambda x: x[1])
+    payload = struct.pack(f'<{n}Q', *[addr for _, addr in indexed])
+    return payload, ("py", indexed, None)
+
+
+def _batch_finish(raw_bytes, n, restore):
+    """Decrypt the driver's reply and put it back in the caller's order."""
+    kind, order, sorted_a = restore
+    if kind == "np":
+        vals = _np.frombuffer(raw_bytes, dtype=_np.uint64, count=n)
+        key = ((sorted_a ^ _np.uint64(0x5A)) & _np.uint64(0xFF)) * _np.uint64(_XOR_SPREAD)
+        out = _np.empty(n, dtype=_np.uint64)
+        out[order] = vals ^ key
+        return out.tolist()
+    raw = struct.unpack(f'<{n}Q', raw_bytes)
+    out = [0] * n
+    for i, (orig_idx, addr) in enumerate(order):
+        out[orig_idx] = raw[i] ^ (((addr ^ 0x5A) & 0xFF) * _XOR_SPREAD)
+    return out
 
 
 GUI_IMPORT_ERROR = None
@@ -874,8 +921,7 @@ class Mem:
 
         # Sort addresses by page to trigger the driver's page cache optimization
         # This prevents invalidating the page walk cache on every read
-        indexed_addrs = sorted(enumerate(addrs), key=lambda x: x[1])
-        sorted_addrs = [x[1] for x in indexed_addrs]
+        payload, restore = _batch_prepare(addrs)
 
         for attempt in range(max(1, attempts)):
             t_yield0 = time.perf_counter()
@@ -886,14 +932,14 @@ class Mem:
             t_lock0 = time.perf_counter()
             with self._drv_lock:
                 self.lock_wait_s += time.perf_counter() - t_lock0
-                ctypes.memmove(self.shared.data, struct.pack(f'<{n}Q', *sorted_addrs), n * 8)
+                ctypes.memmove(self.shared.data, payload, n * 8)
                 self.shared.cr3 = self.cr3
                 self.shared.size = n
                 self.shared.command = 5
                 self._signal_command()
                 ok = self._wait(2000) and self.shared.status == 0
                 raw = (
-                    struct.unpack(f'<{n}Q', ctypes.string_at(ctypes.addressof(self.shared.data), n * 8))
+                    ctypes.string_at(ctypes.addressof(self.shared.data), n * 8)
                     if ok else None
                 )
             if not raw:
@@ -901,9 +947,7 @@ class Mem:
                 continue
 
             # Decrypt and restore original order
-            out = [0] * n
-            for i, (orig_idx, addr) in enumerate(indexed_addrs):
-                out[orig_idx] = raw[i] ^ (((addr ^ 0x5A) & 0xFF) * 0x0101010101010101)
+            out = _batch_finish(raw, n, restore)
             if any(out) or attempt == attempts - 1:
                 return out
             time.sleep(0.0005)
@@ -924,27 +968,24 @@ class Mem:
         n = len(addrs)
         if n == 0:
             return []
-        indexed_addrs = sorted(enumerate(addrs), key=lambda x: x[1])
-        sorted_addrs = [x[1] for x in indexed_addrs]
+        payload, restore = _batch_prepare(addrs)
         with self._claim_tier(TIER_TICK):
             for attempt in range(max(1, attempts)):
                 with self._drv_lock:
-                    ctypes.memmove(self.shared.data, struct.pack(f'<{n}Q', *sorted_addrs), n * 8)
+                    ctypes.memmove(self.shared.data, payload, n * 8)
                     self.shared.cr3 = self.cr3
                     self.shared.size = n
                     self.shared.command = 5
                     self._signal_command()
                     ok = self._wait(2000) and self.shared.status == 0
                     raw = (
-                        struct.unpack(f'<{n}Q', ctypes.string_at(ctypes.addressof(self.shared.data), n * 8))
+                        ctypes.string_at(ctypes.addressof(self.shared.data), n * 8)
                         if ok else None
                     )
                 if not raw:
                     time.sleep(0.0005)
                     continue
-                out = [0] * n
-                for i, (orig_idx, addr) in enumerate(indexed_addrs):
-                    out[orig_idx] = raw[i] ^ (((addr ^ 0x5A) & 0xFF) * 0x0101010101010101)
+                out = _batch_finish(raw, n, restore)
                 if any(out) or attempt == attempts - 1:
                     return out
                 time.sleep(0.0005)
@@ -982,25 +1023,25 @@ class Mem:
 class OFF:
     # --- Klass RVAs (GameAssembly.dll) ---
     # 2026-09-08 fresh dump — updated after game update
-    BaseNetworkable_c           = 0x10BE8EC8  # game update 2026-09-11 (was 0x118D4020) -- export.h typeinfo == UC 'P' BaseNetworkable_Static
-    BasePlayer_c                = 0x10C06290  # game update 2026-09-11 -- script.json BasePlayer_TypeInfo == UC 'P' Class_BasePlayer
-    MainCamera_c                = 0x10C62B28  # game update 2026-09-11 (was 0x118B4098) -- export.h == script.json == UC 'P'
-    LocalPlayer_c               = 0x10C519C8  # game update 2026-09-11 -- UC 'P' Class_LocalPlayer == two UC posts' LP klass
-    ListComponent_PlayerModel_c = 0x10C53E98  # game update 2026-09-11 (was 0x118D8CB0) -- export.h == script.json
-    BaseViewModel_c             = 0x10C08DE8  # game update 2026-09-11 -- export.h
-    TOD_Sky_c                   = 0x10C593A8  # game update 2026-09-11 -- export.h == UC 'P' TOD_Sky_Static
-    BaseEntity_c                = 0x10CAF278  # game update 2026-09-11 -- script.json
-    BaseCombatEntity_c          = 0x10C13F48  # game update 2026-09-11 -- script.json
-    BaseProjectile_c            = 0x10BFE170  # game update 2026-09-11 -- script.json
-    GameManager_c               = 0x11866048  # STALE (2026-09-07) — not in new dump
-    ItemIcon_c                  = 0x11623CF0  # STALE (2026-09-07) — not in new dump
-    OreResourceEntity_c         = 0x10C6FD58  # game update 2026-09-11 -- script.json
-    CollectibleEntity_c         = 0x10C716A8  # game update 2026-09-11 -- script.json
-    WorldItem_c                 = 0x10C68540  # game update 2026-09-11 -- script.json
-    DroppedItemContainer_c      = 0x10C6FD40  # game update 2026-09-11 -- script.json
-    BuildingPrivlidge_c         = 0x10BF01D8  # game update 2026-09-11 -- script.json
-    LootContainer_c             = 0x10C57E60  # game update 2026-09-11 -- script.json
-    IL2CppHandle_c              = 0x11A88F30  # STALE (2026-09-07) — not in new dump
+    BaseNetworkable_c           = 0x10959AB0  # game update 2026-09-17 (was 0x10BE8EC8)
+    BasePlayer_c                = 0x1095A178  # game update 2026-09-18 (was 0x10C06290)
+    MainCamera_c                = 0x109B7980  # game update 2026-09-17 (was 0x10C62B28)
+    LocalPlayer_c               = 0x1095E1D8  # game update 2026-09-18 (was 0x10C519C8)
+    ListComponent_PlayerModel_c = 0x109BFF80  # game update 2026-09-18 martin export (was 0x10C53E98)
+    BaseViewModel_c             = 0x10952708  # game update 2026-09-18 martin export (was 0x10C08DE8)
+    TOD_Sky_c                   = 0x10A089B8  # game update 2026-09-17 (was 0x10C593A8)
+    BaseEntity_c                = 0x10958660  # game update 2026-09-18 (was 0x10CAF278)
+    BaseCombatEntity_c          = 0x1095B660  # game update 2026-09-18 (was 0x10C13F48)
+    BaseProjectile_c            = 0x10959B08  # game update 2026-09-18 script.json (was 0x10BFE170)
+    GameManager_c               = 0x11866048  # STALE (2026-09-07) — not in NeoRed v6 dump
+    ItemIcon_c                  = 0x10A4FEF8  # game update 2026-09-17 (was 0x11623CF0 STALE)
+    OreResourceEntity_c         = 0x10959A58  # game update 2026-09-18 (was 0x10C6FD58)
+    CollectibleEntity_c         = 0x10A40F30  # game update 2026-09-18 (was 0x10C716A8)
+    WorldItem_c                 = 0x10A143C0  # game update 2026-09-18 (was 0x10C68540)
+    DroppedItemContainer_c      = 0x10959AE8  # game update 2026-09-18 (was 0x10C6FD40)
+    BuildingPrivlidge_c         = 0x109ECAB0  # game update 2026-09-18 (was 0x10BF01D8)
+    LootContainer_c             = 0x10949388  # game update 2026-09-18 script.json (was 0x10C57E60)
+    IL2CppHandle_c              = 0x11A88F30  # STALE (2026-09-07) — not in NeoRed v6 dump
     # Game update 2026-09-10, resolved. The user found it directly in a
     # fresh script.json TypeInfo listing: {"Address": 294759824, "Name":
     # "ListComponent<Projectile>_TypeInfo", "Signature":
@@ -1013,8 +1054,7 @@ class OFF:
     # as BaseNetworkable_c/MainCamera_c/ListComponent_PlayerModel_c above,
     # which this update also moved -- a real sanity check, not just a
     # plausible-looking number.
-    ProjectileList_c            = 0x10C6C9A0  # game update 2026-09-11 -- script.json ListComponent<Projectile>_TypeInfo == UC 'P' (0x1191B3A8 was the previous build's range)
-
+    ProjectileList_c            = 0x10985298  # game update 2026-09-17 (was 0x10C6C9A0) -- list_component_projectile typeinfo
 
     # --- IL2CPP API RVAs ---
     # Kept for diagnostics only: an external reader uses the table-page
@@ -1045,8 +1085,8 @@ class OFF:
     # Result: clientEntities is at +0x0, not +0x8. Swapped the primary/alt
     # pair below; the existing probe still tries both, so this only saves
     # the wasted first attempt each run, not a correctness requirement.
-    wrapper_in_static     = 0x20  # game update 2026-09-11: UC 'P' BaseNetworkable_Static.client_entities=0x20, user header wcp=0x20 (was 0x0)
-    wrapper_in_static_alt = 0x0   # previous build's slot, still probed as a fallback
+    wrapper_in_static     = 0x8   # game update 2026-09-17 (was 0x20) -- base_networkable::wrapper_class_ptr
+    wrapper_in_static_alt = 0x20  # previous build's slot, still probed as a fallback
     hv_slot             = 0x18  # HV_HANDLE: HiddenValue<T>._handle encrypted u64
     hv_has_value        = 0x10  # HV_HAS_VALUE: HiddenValue<T>._hasValue init-flag
     # was 0x14 (build 24840484); new dump 2026-09-03 moves _hasValue to
@@ -1104,14 +1144,14 @@ class OFF:
     # container_belt/wear, item_list, mainCamera...), so it's trusted higher
     # where the two conflict. Went with this one; revert to the NeoRed pair
     # above if local-player resolution breaks in-game.
-    LocalPlayer_Entity           = 0x18  # game update 2026-09-11: UC 'P' LocalPlayer_Static.Entity=0x18 == a UC poster's IDA of GetLocalPlayer (*(sf+24)) (was 0x8)
+    LocalPlayer_Entity           = 0x28  # game update 2026-09-18: NeoRed v6 local_player_canonical.entity_field_off=0x28 (was 0x18)
     BasePlayer_visiblePlayerList = 0x138  # encrypted dictionary; no direct list traversal
     ListHashSet_vals             = 0x10   # ListHashSet<T>::_vals (T[] inner array at +0x10)
     ListHashSet_size             = 0x18   # ListHashSet<T>::_size (element count, NOT array capacity)
 
     # --- ListComponent<PlayerModel> (martin dumper) ---
-    ListComponent_instance  = 0x18  # game update 2026-09-11: martin's dumper log 'instance (wrapper) offset: 0x18' (was 0x8)
-    ListComponent_parent    = 0x18  # game update 2026-09-10: parent=0x18 (was 0x10 on 2026-09-08 -- reverted, not a fresh guess: this build's export.h says the same 0x18 the 2026-09-05-and-earlier builds used)
+    ListComponent_instance  = 0x38  # game update 2026-09-18: martin export instance=0x38 (was 0x18)
+    ListComponent_parent    = 0x10  # game update 2026-09-18: martin export parent=0x10 (was 0x18)
     ListComponent_buffer    = 0x10  # dump 2026-09-08: buffer=0x10 (unchanged 2026-09-10)
     ListComponent_size      = 0x18  # BufferList.count at +0x18 (unchanged 2026-09-10)
 
@@ -1122,19 +1162,19 @@ class OFF:
     # HiddenValue<PlayerInventory> at 0x3A0, BaseMovement at 0x348,
     # ModelState at 0x4B0, PlayerBelt at 0x3C0).
     playerModel         = 0x2F0  # game update 2026-09-11 (was 0x498)
-    input               = 0x6F0  # game update 2026-09-11 (was 0x630)
-    eyes                = 0x718  # game update 2026-09-11 (was 0x6F8)
-    inventory           = 0x3A0  # game update 2026-09-11 (was 0x3B8)
-    _displayName        = 0x520  # game update 2026-09-11 (was 0x2F8)
-    userID              = 0x720  # UC "P" 2026-09-11
-    userID_string       = 0x748  # UC "P" 2026-09-11
+    input               = 0x6A0  # game update 2026-09-17 (was 0x6F0)
+    eyes                = 0x740  # game update 2026-09-17 (was 0x718)
+    inventory           = 0x4F0  # game update 2026-09-17 (was 0x3A0)
+    _displayName        = 0x4C8  # game update 2026-09-17 (was 0x520)
+    userID              = 0x720  # STALE (2026-09-11) — not in new dump
+    userID_string       = 0x748  # STALE (2026-09-11) — not in new dump
     playerFlags         = 0x6D8  # unchanged (all three sources)
     cl_active_item      = 0x588  # unchanged (all three sources)
     held_entity_cache   = 0x5E0  # STALE (2026-09-07) -- unused
-    base_movement       = 0x348  # dump.cs BaseMovement-typed field == UC "P" movement
+    base_movement       = 0x518  # game update 2026-09-17 (was 0x348)
     current_team        = 0x558  # unchanged (all three sources)
-    model_state         = 0x4B0  # dump.cs ModelState-typed field == UC "P"
-    belt_shortcut       = 0x3C0  # dump.cs PlayerBelt-typed field == UC "P" Belt
+    model_state         = 0x4B0  # STALE (2026-09-11) — not in new dump
+    belt_shortcut       = 0x3C0  # STALE (2026-09-11) — not in new dump
 
     # --- WorldItem (dropped item entity) ---
     world_item_item     = 0x208  # WorldItem.item -> Item* (confirmed by rust-dumper SDK, 2026-08-21)
@@ -1148,21 +1188,21 @@ class OFF:
     # wrong held-entity offset has no self-check (it validates as "some
     # pointer"), so recoil_engine keeps probing it live against
     # RecoilProperties instead of trusting this constant blindly.
-    item_definition     = 0x60   # ItemDefinition-typed; export.h + P + header agree (was 0x70)
-    item_contents       = 0x38   # ItemContainer-typed #1; P contents (was 0x48). Unused.
-    item_parent_container = 0xC8 # ItemContainer-typed #2 (was 0x68). Unused.
-    item_uid            = 0x88   # ItemId struct; P + header uid (was 0x80)
-    item_heldEntity     = 0x10   # EntityRef #1; P + export.h + header (was STALE 0x80)
-    item_held_entity_direct = 0x10  # same field, kept as an alias. Unused.
-    item_worldEnt       = 0x78   # EntityRef #2; P worldEnt (was STALE 0xB8). Unused.
+    item_definition     = 0x40   # game update 2026-09-17 (was 0x60) -- item::item_definition
+    item_contents       = 0x38   # STALE (2026-09-11) — not in new dump. Unused.
+    item_parent_container = 0xC8 # STALE (2026-09-11) — not in new dump. Unused.
+    item_uid            = 0xA8   # game update 2026-09-17 (unchanged) -- item::uid
+    item_heldEntity     = 0x70   # game update 2026-09-18: user's verified header (NeoRed v6 0x88 was WRONG)
+    item_held_entity_direct = 0x70  # same field, kept as an alias. Unused.
+    item_worldEnt       = 0x78   # STALE (2026-09-11) — not in NeoRed v6 dump. Unused.
     # amount: public int at 0x40 (P amount, martin's "possible amount #1").
     # The other public int, 0x70, is P's `position` (the slot index -- an
     # int; the user's header calling 0x70 amount / 0xD0 position doesn't fit
     # dump.cs, where 0xD0 is a float). The previous build's 0xA0 was
     # disproven live (clothes showed xN counts), so this needs the same live
     # check before the stack-count HUD is wired again.
-    item_amount         = 0x40   # UNVERIFIED LIVE -- unused
-    item_position       = 0x70   # int slot index (P). Unused.
+    item_amount         = 0x68   # game update 2026-09-18: REVERTED -- NeoRed TIER1 LIVE-PROBE v10 (stackable-ceiling vs ItemDefinition.stackable, works for weapon/ammo/mixed belts)
+    item_position       = 0xEC   # game update 2026-09-18 (was 0x70) -- item::position (int slot index, dump.cs + NeoRed TIER1 LIVE-PROBE v10 confirm). Unused.
     item_condition      = 0xE0   # private float (P _condition). Unused.
     item_max_condition  = 0x44   # private float (P _maxCondition). Unused.
     item_clientAmmoCount = 0x2C  # Nullable<int> (P clientAmmoCount). Unused.
@@ -1192,12 +1232,12 @@ class OFF:
     # should have the biggest max). main is 0x60 in every hypothesis, so the
     # 36-slot cap in _read_held_items_batch can't swallow the big container
     # even if belt/wear turn out swapped.
-    container_belt      = 0x28   # P + header (roles UNVERIFIED LIVE)
-    container_main      = 0x60   # P + header
-    container_wear      = 0x78   # P + header (roles UNVERIFIED LIVE)
+    container_belt      = 0x60   # game update 2026-09-17 (unchanged) -- player_inventory::containerBelt (FLAG-SCAN bit 0x4)
+    container_main      = 0x38   # game update 2026-09-18: REVERTED -- NeoRed FLAG-SCAN says main=0x38 (rust-dumper_output.h struct assignment was wrong, inventory broke in-game)
+    container_wear      = 0x58   # game update 2026-09-18: REVERTED -- NeoRed FLAG-SCAN says wear=0x58 (see container_main)
     # ItemContainer: the single List<Item>-typed field is at 0x38 (dump.cs;
     # P + header agree). martin's export says 0x20 -- that is an int.
-    item_list           = 0x38   # game update 2026-09-11 (was 0x48)
+    item_list           = 0x48   # game update 2026-09-17 (was 0x38)
 
     # --- BaseEntity ---
     # 0x1B8 matches offsets_decrypts_export.h generated same-day from THIS
@@ -1251,7 +1291,7 @@ class OFF:
     pm_is_local_player  = 0xC4   # bool: this PlayerModel belongs to the local player (dump.cs: Nullable<bool> at 0xC4)
     # dump.cs TypeDefIndex 5635 line 795907: `private SkinnedMultiMesh ... // 0x398`
     # -- confirms offsets_decrypts_export.h's PlayerModel.SkinnedMultiMesh=0x398.
-    pm_multiMesh        = 0x488  # game update 2026-09-11: export.h + UC 'P' _multiMesh (was 0x3A8)
+    pm_multiMesh        = 0x250  # game update 2026-09-17 (was 0x488) -- skinned_multi_mesh
 
     # --- SkinnedMultiMesh & Renderers (Chams) ---
     smm_rendererList       = 0x58   # dump 2026-09-08 (was 0x50)
@@ -1277,13 +1317,13 @@ class OFF:
         "GreenEmissive":    174384,
     }
     # 0x3B8 (previous value) is `private SoundDefinition` in dump.cs -- wrong type entirely.
-    pm_skin_renderers   = 0x488  # same field as pm_multiMesh (was 0x3A8)
+    pm_skin_renderers   = 0x250  # same field as pm_multiMesh — game update 2026-09-17 (was 0x488)
 
     # --- PlayerEyes (confirmed by fresh dump 2026-09-07) ---
-    viewOffset          = 0x40   # confirmed
+    viewOffset          = 0x60   # game update 2026-09-18: user's verified header (NeoRed v6 0x40 was WRONG)
     bodyRotation        = 0x50   # confirmed (Quaternion: qx=0x50 qy=0x54 qz=0x58 qw=0x5C)
-    eyes_head_angles_x  = 0x60   # NEW (2026-09-07): headAngles.x (pitch)
-    eyes_head_angles_y  = 0x64   # NEW (2026-09-07): headAngles.y (yaw)
+    eyes_head_angles_x  = 0x60   # STALE (2026-09-07) — viewOffset now occupies 0x60, needs re-dump
+    eyes_head_angles_y  = 0x64   # STALE (2026-09-07) — same concern as head_angles_x
     eyes_wrapper_flag   = 0x10   # HiddenValue wrapper flag byte
     eyes_wrapper_handle = 0x18   # HiddenValue encrypted handle
 
@@ -1323,7 +1363,7 @@ class OFF:
     bp_projectile_velocity_scale = 0x394
 
     # --- MainCamera (dump 2026-09-08) ---
-    mainCamera          = 0x28   # game update 2026-09-11: export.h + dumper log 'Camera chain: [+0xb8] -> [+0x28] -> [+0x10]' (was 0x8)
+    mainCamera          = 0xB0   # game update 2026-09-17 (was 0x28) -- main_camera::camera_object
     mainCameraTransform = 0x8    # dump 2026-09-08 (was 0x28, currently unused)
 
     # --- UnityEngine.Camera (native) ---
@@ -1366,8 +1406,8 @@ class OFF:
     native_component_entry_ptr   = 0x8   # ptr within one Components[] entry (stride 0x10; Transform is always entry 0)
     native_transform_world_pos   = 0x90  # TransformData -> cached world position (Vector3)
 
-    # --- SingletonComponent ---
-    Instance            = 0x8
+    # --- SingletonComponent / TOD_Sky ---
+    Instance            = 0x50  # game update 2026-09-17 (was 0x8) -- tod_sky::instance
 
     # --- Player prefab ID ---
     k_player_prefab_id  = 4108440852  # dropzoo confirmed
@@ -1396,48 +1436,42 @@ def _hv_decrypt(hv_value, ops):
 
 
 def decrypt_bn0(hv_value):
-    # Game update 2026-09-11 -- BaseNetworkable static -> client realm
-    # (Basnetworkable_Decryption in the user's header). martin's export came
-    # out with EMPTY loop bodies again this run. XOR/ADD/ROL(10)/ADD, checked
-    # bit-exact against a literal transcription over 2000 random inputs.
-    return _hv_decrypt(hv_value, [('xor', 0x6B59DCD4), ('add', 0x12F287EE), ('rol', 10), ('add', 0x2AD5742A)])
+    # Game update 2026-09-17 -- decrypt_networkable_key
+    # SUB/XOR/ROL(25)
+    return _hv_decrypt(hv_value, [('sub', 0x7226E3E6), ('xor', 0x2BB75F5E), ('rol', 25)])
 
 
 def decrypt_bn1(hv_value):
-    # Game update 2026-09-11 -- realm -> entity list (EntityList_Decryption).
-    # ROL(26)/XOR/ADD, checked bit-exact (2000 random inputs).
-    return _hv_decrypt(hv_value, [('rol', 26), ('xor', 0xADA5634C), ('add', 0x1BFFF7A6)])
+    # Game update 2026-09-17 -- decrypt_networkable_list
+    # ADD/ROL(19)/XOR/ROL(1)
+    return _hv_decrypt(hv_value, [('add', 0x30F40426), ('rol', 19), ('xor', 0x41C539DD), ('rol', 1)])
 
 
 def decrypt_local_player(hv_value):
-    # Game update 2026-09-11: LocalPlayer's static Entity HiddenValue uses the
-    # SAME chain as the BaseNetworkable realm -- read off a UC poster's IDA
-    # output of the game's own GetLocalPlayer, and checked equal to
-    # decrypt_bn0 over 2000 random inputs.
+    # Game update 2026-09-18: user's C header networkable_key = same chain as bn0
     return decrypt_bn0(hv_value)
 
 
 def decrypt_player_inventory(hv_value):
-    # Game update 2026-09-11. martin's dumper FAILED on this chain ("Failed
-    # to resolve PlayerInventory decrypt from 15 candidate(s)"); this is a UC
-    # poster's (pivoed) chain, which he says he did not test. Transcription
-    # checked bit-exact; the chain itself is only proven once held items /
-    # the belt HUD resolve in-game. ROL(28)/XOR/ADD.
-    return _hv_decrypt(hv_value, [('rol', 28), ('xor', 0x65B9B225), ('add', 0x2F961B1E)])
+    # Game update 2026-09-18: user's C header + fnwbfhzjcnsb ROL(17)/XOR/ROL(20)/ROL(13)/SUB
+    # were live-tested and produced garbage (inv=0, sample_decoded=0x5F97C5B0764B9965 not a
+    # valid GC handle). Switching to the forum chain that TWO independent posters (ThePanix,
+    # xyl32) concur on for this build: XOR 0xBB08A3FA / ADD 0x56329D44 / ROL(27).
+    return _hv_decrypt(hv_value, [('xor', 0xBB08A3FA), ('add', 0x56329D44), ('rol', 27)])
 
 
 def decrypt_player_eyes(hv_value):
-    # Game update 2026-09-11. Same provenance and caveat as
-    # decrypt_player_inventory (dumper failed, pivoed's untested chain).
-    # ADD/ROL(15)/XOR/ROL(6).
-    return _hv_decrypt(hv_value, [('add', 0xC4421DB7), ('rol', 15), ('xor', 0x8F17AD9A), ('rol', 6)])
+    # Game update 2026-09-18: user's C header (DecrypterGen auto-ops were WRONG in-game)
+    # ROL(17) / XOR 0x24E8F4CF / ROL(20) / SUB 0x214D6E5A
+    return _hv_decrypt(hv_value, [('rol', 17), ('xor', 0x24E8F4CF), ('rol', 20), ('sub', 0x214D6E5A)])
 
 
 def decrypt_cl_active_item(value):
-    # Game update 2026-09-11: martin's export (complete this time), the
-    # user's header and two UC posts all give the same chain.
-    # SUB/XOR/ROL(19)/ADD. Decrypts the raw value directly (no handle).
-    return _hv_decrypt(value, [('sub', 0x3D5E8E09), ('xor', 0x2294A40F), ('rol', 19), ('add', 0x62310A3F)])
+    # Game update 2026-09-18: forum consensus (ThePanix + xyl32 + sarsllmaz all agree)
+    # XOR 0xCDC978CC / SUB 0x51E49689 / XOR 0xAA663687
+    # Returns UID directly (no ReadMemory wrap, no il2cpp_get_handle) -- caller reads
+    # cl_active_raw as u64 from BasePlayer+0x588 and uses the result as the item UID.
+    return _hv_decrypt(value, [('xor', 0xCDC978CC), ('sub', 0x51E49689), ('xor', 0xAA663687)])
 
 
 def _read_hv_handle(m, wrapper, attempts=3):
@@ -5673,6 +5707,72 @@ class RustGame:
             return list(self._pm_ptr_cache), self._pm_payload, True
         return [], payload, False
 
+    def _log_pm_churn(self, prev_list, pm_ptrs, lc_count, used_cache):
+        """Which PlayerModels left/joined the game's own list since last refresh.
+
+        A player that leaves here is gone from ListComponent<PlayerModel>
+        itself, before any of our position/bone/render logic runs.
+        """
+        cur = set(pm_ptrs)
+        now = time.perf_counter()
+        pos_cache = getattr(self, '_pm_pos_cache', {}) or {}
+        origin = getattr(self, 'local_pos', None)
+        gone = getattr(self, '_pm_gone', None)
+        if gone is None:
+            gone = self._pm_gone = {}
+
+        def describe(pm):
+            pos = pos_cache.get(pm)
+            if pos is None:
+                return f"0x{pm:X}(no pos)"
+            if origin is None:
+                return f"0x{pm:X}"
+            return f"0x{pm:X}@{self._dist3(pos, origin):.0f}m"
+
+        if prev_list:
+            left = prev_list - cur
+            joined = cur - prev_list
+            if left or joined:
+                print(
+                    f"[PM-CHURN] lc_count={lc_count} list={len(cur)} "
+                    f"cache={'y' if used_cache else 'n'} "
+                    f"left={len(left)} [{' '.join(describe(p) for p in list(left)[:6])}] "
+                    f"joined={len(joined)} [{' '.join(describe(p) for p in list(joined)[:6])}]",
+                    flush=True,
+                )
+            for pm in left:
+                gone[pm] = (now, pos_cache.get(pm))
+        for pm in list(gone):
+            if pm in cur or now - gone[pm][0] > 5.0:
+                del gone[pm]
+        self._probe_gone_pms(gone, now, origin)
+
+    def _probe_gone_pms(self, gone, now, origin):
+        """Dead (position frozen) or alive but dropped from the list (still moving)?"""
+        pms = [pm for pm in gone if now - gone[pm][0] >= 0.5][:6]
+        if not pms:
+            return
+        vals = self.m.batch_u64(
+            [a for pm in pms for a in (pm + OFF.position_pm, pm + OFF.position_pm + 8)],
+            attempts=1,
+        )
+        rows = []
+        for i, pm in enumerate(pms):
+            if 2 * i + 1 >= len(vals):
+                break
+            left_at, last = gone[pm]
+            pos = struct.unpack_from('<fff', struct.pack('<QQ', vals[2 * i], vals[2 * i + 1]))
+            if not all(math.isfinite(c) for c in pos):
+                rows.append(f"0x{pm:X} {now - left_at:.1f}s pos=garbage")
+                continue
+            moved = self._dist3(pos, last) if last is not None else -1.0
+            dist = self._dist3(pos, origin) if origin is not None else -1.0
+            rows.append(
+                f"0x{pm:X} {now - left_at:.1f}s @{dist:.0f}m moved={moved:.1f}m "
+                f"pos=({pos[0]:.1f},{pos[1]:.1f},{pos[2]:.1f})"
+            )
+        print(f"[PM-GONE] {len(gone)} out of list | " + " | ".join(rows), flush=True)
+
     def _filter_local_pm(self, pm_ptrs):
         if not pm_ptrs:
             return None, []
@@ -7315,6 +7415,7 @@ class RustGame:
             payload = self._pm_payload
             used_pm_cache = True
         else:
+            prev_list = set(self._pm_ptr_cache or ())
             pm_ptrs, payload, used_pm_cache = self._read_player_model_list(
                 buf_arr,
                 lc_count,
@@ -7322,6 +7423,7 @@ class RustGame:
             self._next_pm_list_refresh_at = (
                 now_players + PLAYER_LIST_REFRESH_INTERVAL
             )
+            self._log_pm_churn(prev_list, pm_ptrs, lc_count, used_pm_cache)
         t_pm_list = (time.perf_counter() - t0) * 1000
         self._hit_window_pm_list_total += 1
         self._hit_window_pm_list_hits += 1 if pm_list_fast_path else 0
@@ -7467,8 +7569,16 @@ class RustGame:
         _diag_done = getattr(self, '_diag_pm_done', False)
         if not hasattr(self, '_diag_pm_done'):
             self._diag_pm_done = False
+        dead_pms = getattr(self, '_pm_dead', None) or {}
         for pm in pm_ptrs:
             pos = None
+            # Dead (BasePlayer destroyed, see model.py _mark_pm_dead): the
+            # skeleton is already gone, so the box must go with it rather than
+            # linger until the PlayerModel list drops the corpse a second later.
+            if pm in dead_pms:
+                pm_pos_cache.pop(pm, None)
+                self._bone_position_cache.pop(pm, None)
+                continue
 
             # Path A: retired. It used to read the root bone's raw TRS slot and
             # call it a world position, which made unrelated players collapse

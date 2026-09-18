@@ -69,11 +69,11 @@ OFF_PITCH_MAX           = 0x24
 # see the matching comments in legacy_runtime.OFF for the full reasoning
 # behind each value here). Refreshed 2026-09-10 after a game update reshuffled
 # the whole Item class (proven by item_definition alone moving 0xA0 -> 0x70).
-OFF_INVENTORY           = 0x3A0   # BasePlayer.inventory (HV wrapper) -- game update 2026-09-11 (was 0x3B8)
+OFF_INVENTORY           = 0x4F0   # BasePlayer.inventory (HV wrapper) -- game update 2026-09-17 (was 0x3A0)
 OFF_CL_ACTIVE_ITEM      = 0x588   # BasePlayer.clActiveItem (unchanged through the 2026-09-11 update)
-OFF_CONTAINER_BELT      = 0x28    # PlayerInventory.containerBelt -- game update 2026-09-11 (was 0x78), UC "P" + user header; role unverified live, see OFF.container_belt
-OFF_ITEM_LIST           = 0x38    # ItemContainer.itemList -- game update 2026-09-11 (was 0x48), the single List<Item>-typed field in dump.cs
-OFF_ITEM_UID            = 0x88    # Item.uid (ItemId) -- game update 2026-09-11 (was 0x80), UC "P" + user header
+OFF_CONTAINER_BELT      = 0x60    # PlayerInventory.containerBelt -- game update 2026-09-17 (was 0x28)
+OFF_ITEM_LIST           = 0x48    # ItemContainer.itemList -- game update 2026-09-17 (was 0x38)
+OFF_ITEM_UID            = 0xA8    # Item.uid (ItemId) -- game update 2026-09-17 (was 0x88)
 # OFF_ITEM_HELD_ENTITY is GONE -- resolved live instead (see
 # HELD_ENTITY_CANDIDATES / _probe_held_entity below), because guessing this
 # one field wrong is what broke held-items AND no-recoil together, twice,
@@ -81,7 +81,7 @@ OFF_ITEM_UID            = 0x88    # Item.uid (ItemId) -- game update 2026-09-11 
 # guess. Confirmed live 2026-09-10: [NORECOIL-DBG] showed weapon
 # identification working (uid fixed) while held_entity stayed null (the
 # offset never having been fixed) -- exactly the failure this replaces.
-OFF_ITEM_DEFINITION     = 0x60    # Item.info (ItemDefinition) -- game update 2026-09-11 (was 0x70), export.h + UC "P" + dump.cs type
+OFF_ITEM_DEFINITION     = 0x40    # Item.info (ItemDefinition) -- game update 2026-09-17 (was 0x60)
 OFF_ITEMDEF_SHORTNAME   = 0x28    # ItemDefinition.shortname (Il2CppString*) (unchanged through the 2026-09-11 update)
 
 RESOLVE_INTERVAL = 0.5  # seconds between weapon re-resolution
@@ -169,11 +169,9 @@ class RecoilEngine:
     # is heldEntity vs worldEnt is the thing this probes for live rather
     # than guesses -- guessing it wrong is what broke held-items AND
     # no-recoil together, twice, before in this project's history.
-    # Game update 2026-09-11: this build's dump.cs has exactly two
-    # EntityRef-typed fields on Item, 0x10 and 0x78. Three sources name 0x10
-    # heldEntity (0x78 worldEnt), so it is tried first -- the probe still
-    # decides, by requiring a live RecoilProperties behind the pointer.
-    HELD_ENTITY_CANDIDATES = (0x10, 0x78)
+    # Game update 2026-09-18: reverted — user's verified header says 0x70
+    # (NeoRed v6 0x88 was WRONG). Probe still validates via RecoilProperties.
+    HELD_ENTITY_CANDIDATES = (0x70, 0x78)
 
     def _probe_held_entity(self, matched_item):
         """held_entity off the CURRENTLY EQUIPPED item (matched_item already

@@ -180,6 +180,14 @@ PROJECTILE_TABLE = {
     "crossbow":       (60.0, 0.0, 1.0),
     "pistol_nailgun": (90.0, 0.0, 1.0),
     "rifle_ak" : (300, 0.15, 1.0),
+    "rifle_lr300" : (500, 0.15, 1.0),
+    "rifle_m39" : (500, 0.15, 1.0),
+    "rifle_semiauto" : (500, 0.15, 1.0),
+    "pistol_eoka":    (100.0, 0.05, 1.0),
+    "shotgun_waterpipe":  (225.0, 0.05, 1.0), # Devient 100.0 si cartouche artisanale
+    "shotgun_double":     (225.0, 0.05, 1.0), # Double canon (DB)
+    "shotgun_pump":       (225.0, 0.05, 1.0), # Fusil à pompe (Pump)
+    "shotgun_spas12":     (225.0, 0.05, 1.0), # SPAS-12
 }
 
 
@@ -463,7 +471,7 @@ class ProjectileBallistics:
     # different ListComponent<T> instantiations really do lay out their
     # statics differently by T, which the original dead 0x28 guess had the
     # right idea about, just the wrong number.
-    PROJECTILE_INSTANCE_OFF = 0x20
+    PROJECTILE_INSTANCE_OFF = 0x38  # game update 2026-09-17 (was 0x20) -- list_component_projectile::wrapper
 
     def _find_list(self, sf):
         """Locate the projectile list, remembering which offsets worked.
@@ -495,12 +503,12 @@ class ProjectileBallistics:
             return got
         return None
 
-    # Window searched for Projectile.owner. The reference layout has owner at
-    # +0xD0 with initialVelocity at +0x18; ours has initialVelocity at +0x28,
-    # a uniform +0x10 shift that puts owner near +0xE0 -- but that is an
-    # inference, so it is probed and confirmed against the known local
-    # BasePlayer rather than hardcoded.
-    OWNER_SEARCH = (0x80, 0x160)
+    # Window searched for Projectile.owner. Game update 2026-09-18: extended
+    # upper bound from 0x160 -> 0x210 after ThePanix forum dump gave owner=0x1F0
+    # for this build (was outside the old window, causing "owner field not
+    # located" and killing homing). The window stays a probe validated against
+    # local_bp -- not a hardcode -- so a shift in either direction self-heals.
+    OWNER_SEARCH = (0x80, 0x210)
 
     def _own_projectiles(self, ptrs, local_bp):
         """The subset of `ptrs` owned by the local player.
@@ -1675,12 +1683,24 @@ class AimEngine:
         else:
             _, weapon_key = self._recoil_engine._resolve_weapon(model)
             proj = PROJECTILE_TABLE.get(weapon_key)
+
+            is_enabled = False
+            from . import view_base as base
+            try:
+                idx = base.HOMING_WEAPON_KEYS.index(weapon_key)
+                if getattr(vs, 'aim_homing_weapon_flags', [])[idx]:
+                    is_enabled = True
+            except (ValueError, IndexError):
+                pass
+
             if proj is None:
                 skip_reason = (
                     f"weapon not identified -- {getattr(self._recoil_engine, 'last_status', 'no status')}"
                     if not weapon_key else
                     "hitscan weapon, nothing for homing to steer"
                 )
+            elif not is_enabled:
+                skip_reason = f"weapon {weapon_key} not selected in homing weapon list"
             else:
                 # Measured values (read off a real arrow in flight) beat the
                 # hardcoded guess as soon as one shot has been fired with
